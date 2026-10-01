@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@incantly/core": ["packages/core/src/index.ts"],
+      "@incantly/math": ["packages/math/src/index.ts"],
+      "@incantly/scene": ["packages/scene/src/index.ts"],
+      "@incantly/optics": ["packages/optics/src/index.ts"],
+      "@incantly/sdk": ["packages/sdk/src/index.ts"]
+    }
+  },
+  "include": ["packages/**/*.ts", "apps/**/*.ts"]
+}
