@@ -1,4 +1,5 @@
 """Phase 2: evaluator — integrity, thresholds, deterministic eval → signed vote."""
+
 import json
 
 import pytest
@@ -19,15 +20,20 @@ def trained_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("job_test")
     adapter, losses = train(AutoModelForCausalLM.from_pretrained(MODEL_ID), steps=2, lr=2e-4)
     adapter.save_pretrained(d)
-    (d / "training.json").write_text(json.dumps(
-        {"losses": losses, "steps": 2, "final_loss": losses[-1]}))
+    (d / "training.json").write_text(
+        json.dumps({"losses": losses, "steps": 2, "final_loss": losses[-1]})
+    )
     (d / "commitment.json").write_text(json.dumps({"output_hash": "ab" * 32}))
     return d
 
 
 def _verify(vote, validator_id):
-    payload = {"job_id": vote.job_id, "validator": validator_id,
-               "vote": vote.vote, "evaluation_hash": vote.evaluation_hash}
+    payload = {
+        "job_id": vote.job_id,
+        "validator": validator_id,
+        "vote": vote.vote,
+        "evaluation_hash": vote.evaluation_hash,
+    }
     assert vote.validator_pubkey == signing.pubkey_hex(validator_id)
     assert signing.verify(validator_id, payload, vote.signature)
 

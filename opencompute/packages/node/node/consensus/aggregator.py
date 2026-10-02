@@ -4,6 +4,7 @@ Every vote is signature-checked against the committee registry before it
 counts. Non-members, duplicates, and tampered votes are rejected outright —
 they never influence the tally.
 """
+
 from node.common.schemas import ValidatorVote
 from node.consensus.quorum import decide
 from node.validator import signing
@@ -28,8 +29,12 @@ class Round:
             raise RejectedVote("vote from non-committee member")
         if vote.validator_pubkey in self._by_pubkey:
             raise RejectedVote("duplicate vote")
-        payload = {"job_id": vote.job_id, "validator": vid,
-                   "vote": vote.vote, "evaluation_hash": vote.evaluation_hash}
+        payload = {
+            "job_id": vote.job_id,
+            "validator": vid,
+            "vote": vote.vote,
+            "evaluation_hash": vote.evaluation_hash,
+        }
         if not signing.verify(vid, payload, vote.signature):
             raise RejectedVote("bad signature")
         self._by_pubkey[vote.validator_pubkey] = vote

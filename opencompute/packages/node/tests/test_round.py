@@ -1,4 +1,5 @@
 """Phase 3: aggregation — verified 2-of-3 tally, rejects junk, AAB→VERIFIED."""
+
 import pytest
 
 from node.common.schemas import ValidatorVote
@@ -9,11 +10,14 @@ COMMITTEE = ["validator_a", "validator_b", "validator_c"]
 
 
 def _vote(vid: str, decision: str, job_id: str = "job_001") -> ValidatorVote:
-    payload = {"job_id": job_id, "validator": vid,
-               "vote": decision, "evaluation_hash": "ab" * 32}
-    return ValidatorVote(job_id=job_id, validator_pubkey=signing.pubkey_hex(vid),
-                         vote=decision, evaluation_hash="ab" * 32,
-                         signature=signing.sign(vid, payload))
+    payload = {"job_id": job_id, "validator": vid, "vote": decision, "evaluation_hash": "ab" * 32}
+    return ValidatorVote(
+        job_id=job_id,
+        validator_pubkey=signing.pubkey_hex(vid),
+        vote=decision,
+        evaluation_hash="ab" * 32,
+        signature=signing.sign(vid, payload),
+    )
 
 
 def test_two_accept_one_reject_verifies():

@@ -340,20 +340,21 @@ Legend: `node:` = `packages/node/.venv/bin/python`, `web:` = `web/` npm scripts.
 
 **Done when:** `A ACCEPT, B ACCEPT, C REJECT → VERIFIED` end-to-end in-process.
 
-### Phase 4 — Network communication
+### Phase 4 — Network communication (5/6 ✅, docker blocked)
 
-- [ ] Relay/registry: node registers (`ROLE`, caps), appears in node list
-  - Test: start relay, register worker → list shows it
-- [ ] Heartbeat <10s, stale node marked offline
-  - Test: kill node → offline within 15s
-- [ ] Job broadcast → worker discovers → claim → status CLAIMED
-  - Test: scripted flow asserts state transitions via relay API
-- [ ] Result submission → validators receive validation task
-  - Test: submit → all 3 validators notified
-- [ ] WS metrics @1–3s reach a test subscriber
-  - Test: subscribe, assert ≥1 `node_metrics` event per 5s window
+- [x] Relay/registry: node registers (`ROLE`, caps), appears in node list
+  - Test: `node: pytest tests/test_relay.py -q`
+- [x] Heartbeat <10s, stale node marked offline
+  - Test: expiry + revive covered in `test_relay.py`
+- [x] Job broadcast → worker discovers → claim → status CLAIMED
+  - Test: live 5-process run — viewer saw `job_available` → `job_claimed`
+- [x] Result submission → validators receive validation task
+  - Test: live run — all 3 validators got `validation_task`, voted
+- [x] WS metrics @1–3s reach a test subscriber
+  - Test: live run streamed `node_metrics` throughout training
 - [ ] `docker compose up` runs worker + 3 validators, all registered
-  - Test: `docker compose up --build -d` → 4 containers healthy, relay lists 4
+  - Blocked: Docker daemon not running on this machine (`compose config` valid,
+    entrypoint syntax-checked, equivalent live run passed — retry on a Docker host)
 
 **Done when:** claim → run → submit → validate-notify works across containers.
 

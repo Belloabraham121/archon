@@ -1,16 +1,18 @@
 """Phase 1: local fine-tuning — tiny HF model + LoRA on CPU, synthetic data."""
+
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
 import torch
 
 from node.common.schemas import JobManifest, WorkerCommitment
-from node.storage.artifacts import hash_bytes, hash_dir
+from node.storage.artifacts import hash_dir
 
 MODEL_ID = "hf-internal-testing/tiny-random-gpt2"
-OUTPUT_ROOT = Path("outputs")
+OUTPUT_ROOT = Path(os.getenv("OUTPUT_DIR", "outputs"))
 
 
 def load_manifest(manifest_path: str) -> tuple[JobManifest, str]:
@@ -25,12 +27,12 @@ def load_model():
 
     try:
         return AutoModelForCausalLM.from_pretrained(MODEL_ID)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - hub unreachable is the expected offline path
         print(f"HF hub unreachable ({exc}); using local random-init tiny GPT-2")
         return GPT2LMHeadModel(GPT2Config(n_layer=2, n_head=2, n_embd=32, vocab_size=100))
 
 
-def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4):
+def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4, on_step=None):
     from peft import LoraConfig, TaskType, get_peft_model
 
     torch.manual_seed(0)
@@ -49,17 +51,20 @@ def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4):
         opt.zero_grad()
         loss.backward()
         opt.step()
-        losses.append(round(float(loss.detach()), 4))
+        loss_f = round(float(loss.detach()), 4)
+        losses.append(loss_f)
+        if on_step:
+            on_step(len(losses), steps, loss_f)
     return lora, losses
 
 
-def run_job(manifest_path: str, worker_pubkey: str = "worker_01") -> WorkerCommitment:
+def run_job(manifest_path: str, worker_pubkey: str = "worker_01", on_step=None) -> WorkerCommitment:
     manifest, input_hash = load_manifest(manifest_path)
     steps = max(1, min(manifest.training.steps, 200))
     started = time.time()
 
     model = load_model()
-    adapter, losses = train(model, steps, manifest.training.learning_rate)
+    adapter, losses = train(model, steps, manifest.training.learning_rate, on_step=on_step)
 
     out_dir = OUTPUT_ROOT / manifest.job_id
     out_dir.mkdir(parents=True, exist_ok=True)

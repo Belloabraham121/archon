@@ -1,10 +1,15 @@
 """Phase 2: vote signing — deterministic ed25519 over canonical vote payload."""
+
 from node.validator import signing
 
 
 def _payload():
-    return {"job_id": "job_001", "validator": "validator_a",
-            "vote": "ACCEPT", "evaluation_hash": "ab" * 32}
+    return {
+        "job_id": "job_001",
+        "validator": "validator_a",
+        "vote": "ACCEPT",
+        "evaluation_hash": "ab" * 32,
+    }
 
 
 def test_sign_verify_roundtrip():

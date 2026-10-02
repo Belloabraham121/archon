@@ -6,6 +6,7 @@ Rules:
 - deterministic given (pool, worker, seed) so assignment is reproducible;
   seed with the job_id. Later: random beacons, stake weighting, anti-collusion.
 """
+
 import hashlib
 
 

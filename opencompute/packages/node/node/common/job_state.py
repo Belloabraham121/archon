@@ -1,4 +1,5 @@
 """Job lifecycle state machine: CREATED→…→SETTLED (ARCHITECTURE.md §6)."""
+
 from enum import Enum
 
 

@@ -1,4 +1,5 @@
 """Phase 1: manifest, hardware, hashing, commitment schemas."""
+
 from pathlib import Path
 
 from node.common.schemas import JobManifest, WorkerCommitment

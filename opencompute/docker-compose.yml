@@ -1,25 +1,38 @@
-# Local simulation: 1 worker + 3 validators (2-of-3 quorum).
+# Local simulation: relay + 1 worker + 3 validators (2-of-3 quorum).
 # A VPS is just another machine — same image, same ROLE env.
+# All nodes share OUTPUT_DIR (node-outputs volume) so validators can read
+# the worker's adapter. No AWS/Cloudflare anywhere in the loop.
 #
 #   docker compose up --build          # CPU everywhere
 #   docker compose up --build worker-gpu  # GPU worker (needs nvidia runtime)
 #
 # Single nodes:
 #   docker build -f docker/Dockerfile.node -t protocol-node .
-#   docker run -e ROLE=validator protocol-node
+#   docker run -e ROLE=validator -e RELAY_URL=ws://relay:8000 protocol-node
 #   docker run --gpus all -e ROLE=worker protocol-node
 
 services:
-  worker:
+  relay:
     build:
       context: .
       dockerfile: docker/Dockerfile.node
     image: protocol-node
+    command: ["relay", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+
+  worker:
+    image: protocol-node
     environment:
       ROLE: worker
       NODE_ID: worker_01
+      RELAY_URL: ws://relay:8000
+      OUTPUT_DIR: /data/outputs
     volumes:
       - node-cache:/app/packages/node/.cache
+      - node-outputs:/data/outputs
+    depends_on:
+      - relay
     restart: unless-stopped
 
   validator-a:
@@ -27,8 +40,12 @@ services:
     environment:
       ROLE: validator
       NODE_ID: validator_a
+      RELAY_URL: ws://relay:8000
+      OUTPUT_DIR: /data/outputs
+    volumes:
+      - node-outputs:/data/outputs
     depends_on:
-      - worker
+      - relay
     restart: unless-stopped
 
   validator-b:
@@ -36,8 +53,12 @@ services:
     environment:
       ROLE: validator
       NODE_ID: validator_b
+      RELAY_URL: ws://relay:8000
+      OUTPUT_DIR: /data/outputs
+    volumes:
+      - node-outputs:/data/outputs
     depends_on:
-      - worker
+      - relay
     restart: unless-stopped
 
   validator-c:
@@ -45,8 +66,12 @@ services:
     environment:
       ROLE: validator
       NODE_ID: validator_c
+      RELAY_URL: ws://relay:8000
+      OUTPUT_DIR: /data/outputs
+    volumes:
+      - node-outputs:/data/outputs
     depends_on:
-      - worker
+      - relay
     restart: unless-stopped
 
   # GPU worker variant (commented by default — uncomment to use):
@@ -55,6 +80,8 @@ services:
   #   environment:
   #     ROLE: worker
   #     NODE_ID: worker_gpu_01
+  #     RELAY_URL: ws://relay:8000
+  #     OUTPUT_DIR: /data/outputs
   #   deploy:
   #     resources:
   #       reservations:
@@ -64,6 +91,8 @@ services:
   #             capabilities: [gpu]
   #   volumes:
   #     - node-cache:/app/packages/node/.cache
+  #     - node-outputs:/data/outputs
 
 volumes:
   node-cache:
+  node-outputs:

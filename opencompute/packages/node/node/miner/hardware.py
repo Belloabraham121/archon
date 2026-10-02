@@ -1,4 +1,5 @@
 """Hardware detection: CPU/GPU/RAM + capability advertisement."""
+
 import psutil
 
 
@@ -10,13 +11,14 @@ def detect_hardware() -> dict:
         "gpu_vram_mb": None,
     }
     try:
-        import pynvml  # optional
+        import pynvml  # optional: present with NVIDIA drivers / torch CUDA builds
+
         pynvml.nvmlInit()
         h = pynvml.nvmlDeviceGetHandleByIndex(0)
         info["gpu"] = pynvml.nvmlDeviceGetName(h)
         mem = pynvml.nvmlDeviceGetMemoryInfo(h)
         info["gpu_vram_mb"] = int(mem.total / 1024 / 1024)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - no GPU is the normal CPU case
         pass
     return info
 
