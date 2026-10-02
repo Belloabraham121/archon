@@ -1,0 +1,23 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Local artifact / metrics cache
+.cache/
+*.jsonl
+*.sqlite
+*.sqlite3
+*.db
+
+# Env files
+.env
+.env.local

@@ -1,0 +1,27 @@
+# One image for all roles. Role selected by ROLE env var.
+# CPU default; GPU workers run with `--gpus all` (see docker-compose.yml).
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ROLE=worker
+
+WORKDIR /app
+
+# System deps (curl for healthchecks, build-essential for some wheels)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install node package (light deps first for layer caching)
+COPY packages/node/pyproject.toml packages/node/README.md ./packages/node/
+COPY packages/node/node ./packages/node/node
+COPY packages/node/job.example.json ./packages/node/
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh \
+    && pip install --no-cache-dir ./packages/node
+
+WORKDIR /app/packages/node
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["start"]

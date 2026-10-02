@@ -1,0 +1,69 @@
+# Local simulation: 1 worker + 3 validators (2-of-3 quorum).
+# A VPS is just another machine — same image, same ROLE env.
+#
+#   docker compose up --build          # CPU everywhere
+#   docker compose up --build worker-gpu  # GPU worker (needs nvidia runtime)
+#
+# Single nodes:
+#   docker build -f docker/Dockerfile.node -t protocol-node .
+#   docker run -e ROLE=validator protocol-node
+#   docker run --gpus all -e ROLE=worker protocol-node
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+    image: protocol-node
+    environment:
+      ROLE: worker
+      NODE_ID: worker_01
+    volumes:
+      - node-cache:/app/packages/node/.cache
+    restart: unless-stopped
+
+  validator-a:
+    image: protocol-node
+    environment:
+      ROLE: validator
+      NODE_ID: validator_a
+    depends_on:
+      - worker
+    restart: unless-stopped
+
+  validator-b:
+    image: protocol-node
+    environment:
+      ROLE: validator
+      NODE_ID: validator_b
+    depends_on:
+      - worker
+    restart: unless-stopped
+
+  validator-c:
+    image: protocol-node
+    environment:
+      ROLE: validator
+      NODE_ID: validator_c
+    depends_on:
+      - worker
+    restart: unless-stopped
+
+  # GPU worker variant (commented by default — uncomment to use):
+  # worker-gpu:
+  #   image: protocol-node
+  #   environment:
+  #     ROLE: worker
+  #     NODE_ID: worker_gpu_01
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   volumes:
+  #     - node-cache:/app/packages/node/.cache
+
+volumes:
+  node-cache:
