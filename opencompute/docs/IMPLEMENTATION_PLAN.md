@@ -328,14 +328,15 @@ Legend: `node:` = `packages/node/.venv/bin/python`, `web:` = `web/` npm scripts.
 
 **Done when:** worker output → validator prints signed ACCEPT.
 
-### Phase 3 — Consensus (2-of-3)
+### Phase 3 — Consensus (2-of-3) ✅ DONE
 
 - [x] `decide()` quorum logic (ACCEPT×2 → VERIFIED, etc.)
   - Test: `pytest tests/test_quorum.py -q` ✅ (exists, passing)
-- [ ] Committee assignment: pick 3 validators, exclude worker, no double-vote
+- [x] Committee assignment: pick 3 validators, exclude worker, no double-vote
   - Test: `pytest tests/test_committee.py -q`
-- [ ] Vote aggregation over VALIDATING → VERIFIED/REJECTED/PENDING
-  - Test: feed A=ACCEPT B=ACCEPT C=REJECT → VERIFIED; 1-1-1 pending → PENDING
+- [x] Vote aggregation over VALIDATING → VERIFIED/REJECTED/PENDING
+  - Test: `pytest tests/test_round.py -q` — A ACCEPT, B ACCEPT, C REJECT → VERIFIED;
+    duplicates/non-members/tampered votes rejected, never counted
 
 **Done when:** `A ACCEPT, B ACCEPT, C REJECT → VERIFIED` end-to-end in-process.
 
