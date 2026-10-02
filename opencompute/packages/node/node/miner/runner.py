@@ -30,7 +30,7 @@ def load_model():
         return GPT2LMHeadModel(GPT2Config(n_layer=2, n_head=2, n_embd=32, vocab_size=100))
 
 
-def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4) -> list[float]:
+def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4):
     from peft import LoraConfig, TaskType, get_peft_model
 
     torch.manual_seed(0)
@@ -50,7 +50,7 @@ def train(model, steps: int, lr: float, seq_len: int = 16, batch: int = 4) -> li
         loss.backward()
         opt.step()
         losses.append(round(float(loss.detach()), 4))
-    return losses
+    return lora, losses
 
 
 def run_job(manifest_path: str, worker_pubkey: str = "worker_01") -> WorkerCommitment:
@@ -59,11 +59,11 @@ def run_job(manifest_path: str, worker_pubkey: str = "worker_01") -> WorkerCommi
     started = time.time()
 
     model = load_model()
-    losses = train(model, steps, manifest.training.learning_rate)
+    adapter, losses = train(model, steps, manifest.training.learning_rate)
 
     out_dir = OUTPUT_ROOT / manifest.job_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(out_dir)
+    adapter.save_pretrained(out_dir)
     (out_dir / "manifest.json").write_text(json.dumps(manifest.model_dump(), indent=2))
     (out_dir / "training.json").write_text(
         json.dumps({"losses": losses, "steps": steps, "final_loss": losses[-1]}, indent=2)

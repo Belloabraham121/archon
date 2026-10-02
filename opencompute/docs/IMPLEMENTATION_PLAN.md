@@ -315,15 +315,15 @@ Legend: `node:` = `packages/node/.venv/bin/python`, `web:` = `web/` npm scripts.
 
 **Done when:** `python -m node run-job job.example.json` trains and prints a valid commitment.
 
-### Phase 2 — Validator
+### Phase 2 — Validator ✅ DONE
 
-- [ ] Evaluator loads worker output, checks integrity (loads, shapes, no NaN)
+- [x] Evaluator loads worker output, checks integrity (loads, shapes, no NaN)
   - Test: `node: pytest tests/test_evaluator.py -q`
-- [ ] Loss/score thresholds → ACCEPT/REJECT per job validation spec
-  - Test: good output → ACCEPT, bad output → REJECT (same test file)
-- [ ] Deterministic eval: same output + seed → same `evaluation_hash`
-  - Test: run twice → identical hash
-- [ ] Vote signing stub (keypair sign over vote payload)
+- [x] Loss/score thresholds → ACCEPT/REJECT per job validation spec
+  - Test: lenient spec → ACCEPT, strict spec → REJECT (same file)
+- [x] Deterministic eval: same output + seed → same `evaluation_hash`
+  - Test: evaluate twice → identical hash + signature
+- [x] Vote signing stub (keypair sign over vote payload)
   - Test: `pytest tests/test_vote_sign.py -q` (verify passes, tampered fails)
 
 **Done when:** worker output → validator prints signed ACCEPT.
