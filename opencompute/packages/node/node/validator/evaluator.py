@@ -10,6 +10,7 @@ Procedure for a worker output dir (from `run-job`):
    AND eval_loss <= max_loss AND score >= min_score.
 4. Sign the vote with the validator's deterministic ed25519 key.
 """
+
 import hashlib
 import json
 import math
@@ -51,7 +52,7 @@ def check_integrity(out_dir: str | Path) -> tuple[bool, dict]:
             if not bool(torch.isfinite(t).all()):
                 checks["bad_tensor"] = name
                 return False, checks
-    except Exception as exc:  # corrupt / unparsable artifact
+    except Exception as exc:  # noqa: BLE001 - corrupt artifact is a REJECT, not a crash
         checks["error"] = str(exc)
         return False, checks
     return True, checks
@@ -83,7 +84,7 @@ def deterministic_eval(out_dir: str | Path, batches: int = EVAL_BATCHES) -> floa
                 ids = torch.randint(0, vocab, (4, 16))
                 total += float(model(input_ids=ids, labels=ids).loss)
         return round(total / batches, 4)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - eval failure is a REJECT, not a crash
         print(f"deterministic eval failed ({exc})")
         return None
 
@@ -100,11 +101,11 @@ def evaluate_output(
     score = round(1 / (1 + eval_loss), 4) if eval_loss is not None else None
     try:
         final_loss = json.loads((out / "training.json").read_bytes())["final_loss"]
-    except Exception:
+    except Exception:  # noqa: BLE001 - missing/unparsable loss forces REJECT below
         final_loss = math.inf
     try:
         output_hash = json.loads((out / "commitment.json").read_bytes())["output_hash"]
-    except Exception:
+    except Exception:  # noqa: BLE001 - missing commitment hashes as empty
         output_hash = ""
 
     vote = (
@@ -130,8 +131,12 @@ def evaluate_output(
         "integrity": checks,
     }
     evaluation_hash = hashlib.sha256(signing.canonical(record)).hexdigest()
-    payload = {"job_id": out.name, "validator": validator_id, "vote": vote,
-               "evaluation_hash": evaluation_hash}
+    payload = {
+        "job_id": out.name,
+        "validator": validator_id,
+        "vote": vote,
+        "evaluation_hash": evaluation_hash,
+    }
     signature = signing.sign(validator_id, payload)
     return ValidatorVote(
         job_id=out.name,

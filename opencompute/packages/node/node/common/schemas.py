@@ -1,4 +1,5 @@
 """Job manifest, commitments, votes — mirrors docs/PROTOCOL.md + ARCHITECTURE.md §7."""
+
 from pydantic import BaseModel
 
 

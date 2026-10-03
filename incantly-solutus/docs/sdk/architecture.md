@@ -26,7 +26,7 @@ docs/
 - Put parser/evaluator/units/vector algebra in `math`; never put UI behavior there.
 - Put scene-node schemas, transforms, frame snapshots and renderer interfaces in `scene`.
 - Put refraction/ray/material data and solver rules in `optics`; renderer-specific shaders belong in an adapter package.
-- Put framework components in a future `@incantly/react` package. Components consume public SDK state and must not own physics or expression evaluation.
+- Put Tiptap node extensions/conversion in a future `@incantly/tiptap` adapter and React NodeViews in `@incantly/react`. Both consume public SDK state and must not own physics or expression evaluation.
 
 ## Core execution path
 
@@ -36,7 +36,7 @@ docs/
 4. `optics` derives rays/material values for that exact revision.
 5. The renderer consumes the snapshot and may discard it if a newer revision is ready.
 
-This permits a document embed, full canvas, and export pipeline to share one deterministic model.
+This permits a Tiptap document embed, full canvas, and export pipeline to share one deterministic model. See [the Tiptap formula-scene extension](tiptap-formula-scene-extension.md) for the adapter contract.
 
 ## Package responsibilities and future adapters
 
@@ -49,7 +49,8 @@ This permits a document embed, full canvas, and export pipeline to share one det
 | `@incantly/sdk` | stable composition and public exports | private implementation detail | one documented import path for integrators |
 | `@incantly/renderer-webgl` (future) | WebGL2 resources, shader compilation, texture/cache lifecycle | public scene types, authoritative physics state | Canvas renderer, PBR transmission, picking |
 | `@incantly/renderer-webgpu` (future) | WebGPU pipelines and compute passes | changes to the public scene model | high-end renderer, compute simulation adapters |
-| `@incantly/react` (future) | React bindings, hooks and block components | expression evaluation or direct mutation of a scene | `SceneCanvas`, `FormulaEditor`, document block adapter |
+| `@incantly/tiptap` (future) | Tiptap node extensions, ProseMirror conversion and commands | canonical persistence, evaluation or renderer state | `formulaScene` node extension and typed editor commands |
+| `@incantly/react` (future) | React bindings, hooks and NodeViews | expression evaluation or direct mutation of a scene | `SceneCanvas`, `FormulaEditor`, `FormulaSceneNodeView` |
 | `@incantly/storage` (future) | versioned document/scene serialization and migrations | render/physics behavior | save/load, migrations, asset references |
 
 Framework adapters are optional peers of the SDK. A canvas host, document block, export worker and test runner must all be able to construct the same scene from core contracts without importing React.
@@ -84,3 +85,5 @@ Heavy work belongs in workers or explicit export jobs. The interactive renderer 
 4. Add 3D scene contracts, camera, mesh/light nodes and a WebGL renderer.
 5. Add `optics`: ray tracing as an educational overlay, glass material rendering, quality tiers and total-internal-reflection diagnostics.
 6. Add WebGPU, high-quality exports, audio and numerical wave simulation only after their own lifecycle and performance contracts exist.
+
+The detailed product sequence is in [implementation order](implementation-order.md); it intentionally prioritizes the Desmos-like graph/editor before GPU rendering, simulations and 3D.

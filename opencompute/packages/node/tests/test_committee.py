@@ -1,4 +1,5 @@
 """Phase 3: committee assignment — exclude worker, deterministic, no doubles."""
+
 import pytest
 
 from node.consensus.committee import assign
@@ -13,8 +14,7 @@ def test_excludes_worker():
 
 
 def test_deterministic_for_same_seed():
-    assert (assign(POOL, "worker_x", seed="job_001")
-            == assign(POOL, "worker_x", seed="job_001"))
+    assert assign(POOL, "worker_x", seed="job_001") == assign(POOL, "worker_x", seed="job_001")
 
 
 def test_no_double_vote():
@@ -31,6 +31,10 @@ def test_worker_pubkey_excluded_even_under_alias():
     from node.validator import signing
 
     pool = ["alias_for_worker", "validator_a", "validator_b", "validator_c"]
-    committee = assign(pool, worker_id="someone_else",
-                       worker_pubkey=signing.pubkey_hex("alias_for_worker"), seed="job_001")
+    committee = assign(
+        pool,
+        worker_id="someone_else",
+        worker_pubkey=signing.pubkey_hex("alias_for_worker"),
+        seed="job_001",
+    )
     assert "alias_for_worker" not in committee

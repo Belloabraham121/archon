@@ -4,6 +4,7 @@ MVP only: no real key custody. Keypair is sha256("opencompute-validator:<id>"),
 so votes are stable across runs and verifiable by anyone. Replace with wallet
 keys (Solana) before any real deployment.
 """
+
 import hashlib
 import json
 

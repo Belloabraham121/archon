@@ -1,4 +1,5 @@
 """Hash helpers for content-addressed artifacts."""
+
 import hashlib
 from pathlib import Path
 
