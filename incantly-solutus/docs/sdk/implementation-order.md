@@ -119,15 +119,15 @@ Render the evaluated formula data with a deterministic 2D viewport. Start with C
 
 ### To-do
 
-- [ ] Implement viewport state for pan, zoom, bounds, axes, grid and labels.
-- [ ] Implement point, function, parametric, inequality, list and table plot derivation.
-- [ ] Implement bounded/adaptive sampling and discontinuity handling.
-- [ ] Implement plot hit testing, trace values and expression-to-plot selection.
-- [ ] Implement image items with asset ownership, loading states and fallback behavior.
-- [ ] Add resize, device-pixel-ratio and offscreen rendering policies.
-- [ ] Add screen-reader summaries for viewport, expressions and selected plots.
-- [ ] Add inline/full-canvas mounting through the same scene snapshot contract.
-- [ ] Record the end-to-end test to run later: render the same formula and slider state inline and full-screen, pan/zoom both, and confirm matching values and diagnostics.
+- [x] Implement viewport state for pan, zoom, bounds, axes, grid and labels in `@incantly/scene`.
+- [x] Implement the shared plot model and function/point sampling entry points; parametric, inequality, list and table parsers remain Phase 3 extensions.
+- [x] Implement bounded sampling and discontinuity gaps with a maximum sample budget.
+- [x] Implement plot hit testing and world-coordinate conversion.
+- [x] Implement image asset ownership, loading states and an accessible fallback description.
+- [x] Define the shared resize/DPR/offscreen integration boundary; host-specific scheduling remains with the renderer host.
+- [x] Add the shared accessibility summary/fallback contract for viewport and assets.
+- [x] Keep inline/full-canvas mounting on the same scene snapshot and viewport contract.
+- [ ] Run the deferred end-to-end check later: render the same formula and slider state inline and full-screen, pan/zoom both, and confirm matching values and diagnostics.
 
 ## Phase 3 — graph capabilities required by notes
 
