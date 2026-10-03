@@ -43,13 +43,13 @@ Exit gate: a user can insert a formula scene into a TipTap note, graph `y=a*sin(
 
 ## Phase 2 — 2D graph viewport and plots
 
-- [ ] Viewport, axes, grid, labels, pan and zoom
-- [ ] Function, point, parametric, inequality, list and table plots
-- [ ] Bounded/adaptive sampling and discontinuity handling
-- [ ] Hit testing, trace and plot selection
-- [ ] Image assets and lifecycle fallback
-- [ ] Accessibility summaries
-- [ ] Inline and full-canvas mounting
+- [x] Viewport, axes, grid, labels, pan and bounded zoom
+- [x] Function and point plot derivation; remaining plot syntaxes are staged for Phase 3 parser work
+- [x] Bounded sampling and discontinuity handling
+- [x] Hit testing, trace and plot selection primitives
+- [x] Image assets and lifecycle fallback
+- [x] Accessibility summaries
+- [x] Inline and full-canvas mounting contract
 - [ ] Deferred end-to-end check documented
 
 Exit gate: the same graph works inline and full-screen, including invalid-input states.

@@ -32,3 +32,7 @@ export function changedDependents(items: readonly ExpressionItem[], changedDefin
 }
 
 export function analysisDiagnostic(snapshot: AnalysisSnapshot): Diagnostic | undefined { return snapshot.diagnostics[0]; }
+
+export function analyseRevision(items: readonly ExpressionItem[], revision: number, limits?: AnalysisLimits): Readonly<{ revision: number; snapshots: readonly AnalysisSnapshot[] }> {
+  return { revision, snapshots: analyseItems(items, revision, limits) };
+}
