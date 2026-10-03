@@ -1,11 +1,13 @@
 {
   "name": "incantly-solutus",
   "private": true,
-  "packageManager": "pnpm@10.0.0",
+  "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm -r test",
-    "build": "pnpm -r build"
+    "dev:playground": "npm --workspace=@incantly/playground run dev",
+    "build:playground": "npm --workspace=@incantly/playground run build",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "typescript": "^5.7.3"
