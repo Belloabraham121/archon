@@ -131,6 +131,8 @@ Render the evaluated formula data with a deterministic 2D viewport. Start with C
 
 ## Phase 3 — graph capabilities required by notes
 
+Current status: **substantial SDK, playground and TipTap test-mode slice; incomplete exit gate**. See [Phase 1–3 implementation audit](phase3-audit.md). Matrix, inference, statistics, geometry, tables and tone are reachable from authored expressions; full production note integration and several editor workflows remain open.
+
 Only add features that extend the proven 2D expression/viewport system.
 
 - Numeric solver roots/intersections with explicit precision and failure diagnostics.
@@ -152,14 +154,19 @@ Only add features that extend the proven 2D expression/viewport system.
 
 ### To-do
 
-- [ ] Add roots, intersections and numeric-solver diagnostics with precision limits.
-- [ ] Add matrix values and operations with dimension/type diagnostics.
-- [ ] Add regression and descriptive-statistics derivations with explainable outputs.
-- [ ] Add inference templates for Z/T tests, proportions and chi-square workflows.
-- [ ] Add geometry primitives, constraints, points, lines, measurements and construction dependencies.
-- [ ] Add typed note/document scopes for formulas that consume note values.
-- [ ] Add animation clock ownership and audio/sonification disposal rules.
-- [ ] Add formulas, geometry and statistics to the same folder/visibility/undo model.
+- [x] Add roots, intersections and numeric-solver diagnostics with precision limits.
+- [x] Add matrix values and operations with dimension/type diagnostics.
+- [x] Add regression and descriptive-statistics derivations with explainable outputs.
+- [x] Add inference templates for Z/T tests, proportions and chi-square workflows; chooser and distribution-chart parity remain open.
+- [x] Add formula-authored points, segments, circles, polygons, midpoint/distance measurements and construction dependencies; free-point drag updates the source formula in one undoable edit.
+- [ ] Add general geometry constraints, line/circle intersections, snapping and branch persistence.
+- [x] Add typed note/document scopes for formulas that consume note values; production note invalidation/sync remains open.
+- [x] Add animation clock ownership and audio/sonification disposal rules; editor controls for every playback mode and per-item mute remain open.
+- [x] Add formulas, geometry and statistics to the same folder/visibility/undo model.
+- [x] Add scene-owned data-table cells and point plotting, with table symbols available to authored statistics expressions and edits in the same undo/persistence model.
+- [x] Add a matrix grid that edits the authored literal and recomputes dependent expressions.
+- [x] Replace the TipTap placeholder with a repository-backed live preview and typed note bindings in test mode.
+- [x] Browser-test the implemented graph, geometry, matrix, table, inference, note-preview and tone workflows; save comparison screenshots under `Artifacts/`.
 - [ ] Record the end-to-end test to run later: create a note containing a graph, table, matrix, statistic and geometry item, then save/reopen it without losing dependencies.
 
 ## Phase 4 — renderer interface and simulation kernel
@@ -171,7 +178,7 @@ Prepare advanced visual work without prematurely committing to a graphics API.
 - Run deterministic numerical simulations in workers; connect snapshots to the 2D renderer first.
 - Establish quality tiers and cancellation/revision policy before adding any GPU implementation.
 
-**Exit gate:** a simple 2D simulation (for example, a spring, projectile or particle system) runs from formulas, is reproducible from its seed/time, and cannot block document editing.
+**Exit gate:** a simple 2D simulation (for example, a spring, projectile or particle system) runs from formulas, is reproducible from its seed/time, and cannot block document editing. The period/amplitude graph also reaches the documented expression, drag, slider and 2D-rendering parity checks.
 
 ### Reference documents
 
@@ -179,6 +186,7 @@ Prepare advanced visual work without prematurely committing to a graphics API.
 - [State, animation and audio](../tesmos/state-animation-audio.md) — clock, playback, actions and lifecycle.
 - [Complex animation and items](../tesmos/complex-animation-and-items.md) — stress scenes and bounded playback.
 - [Quality, storage and performance](../tesmos/quality-storage-performance.md) — worker, performance and resource policies.
+- [Period/amplitude Desmos parity check](../tesmos/period-amplitude-parity.md) — observed `(p,a)` drag behavior, implemented SDK slice, and remaining expression/rendering gaps.
 
 ### To-do
 
@@ -187,6 +195,10 @@ Prepare advanced visual work without prematurely committing to a graphics API.
 - [ ] Implement one deterministic 2D simulation driven by formula parameters.
 - [ ] Add bounded particle/entity counts, step budgets, memory limits and quality tiers.
 - [ ] Publish immutable frame snapshots to the existing 2D renderer.
+- [ ] Add authored single-variable function definitions and calls (`f(x)=...`, `f(x-s)`) to the parser, dependency resolver, diagnostics and plot sampler; preserve row-by-row formulas rather than introducing a scene-specific function.
+- [ ] Add formula-driven parametric 2D curves/segments with parameter-domain restrictions (for example `(p,at)` for `0≤t≤1`) and dashed guide-line styles in the shared scene/renderer contract.
+- [ ] Persist independent min/max/step and playback settings for each scalar slider, and pass those constraints to the existing SDK `movePointSources` drag operation; dragging `(p,a)` must update both authored rows in one undoable revision.
+- [ ] Compare the complete [Desmos period/amplitude example](https://www.desmos.com/calculator/qckplvwpkk) with the SDK playground: initial `(3,4)` state, constrained drag, both sliders, cosine curve, guides, phase shift, save/reopen and undo. Capture paired screenshots and record any remaining differences; do not mark exact parity complete from unit tests alone.
 - [ ] Ensure document edits remain responsive while simulation work is pending.
 - [ ] Add replay/export representation containing seed, initial state, parameters and clock state.
 - [ ] Record the end-to-end test to run later: start, pause, reset and replay a simulation, then edit the document while work is active and confirm no stale frame is committed.

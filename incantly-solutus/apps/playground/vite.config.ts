@@ -10,6 +10,8 @@ export default defineConfig({
       "@incantly/core": packageSource("core"),
       "@incantly/math": packageSource("math"),
       "@incantly/scene": packageSource("scene"),
+      "@incantly/tiptap": packageSource("tiptap"),
+      "@incantly/audio-web": packageSource("audio-web"),
       "@incantly/sdk": packageSource("sdk"),
     },
   },

@@ -6,3 +6,8 @@ export * from "./plots.js";
 export * from "./hit-testing.js";
 export * from "./assets.js";
 export * from "./animation.js";
+export * from "./geometry.js";
+export * from "./data-table.js";
+export * from "./repository.js";
+export * from "./audio.js";
+export * from "./commands.js";

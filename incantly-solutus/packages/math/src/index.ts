@@ -8,6 +8,14 @@ export * from "./parser.js";
 export * from "./dependency-graph.js";
 export * from "./diagnostics.js";
 export * from "./analysis.js";
+export * from "./worksheet.js";
+export * from "./numerics.js";
+export * from "./matrix.js";
+export * from "./statistics.js";
+export * from "./inference.js";
+export * from "./note-scope.js";
+export * from "./geometry-edit.js";
+export * from "./matrix-source.js";
 
 export function createExpressionEngine(): ExpressionEngine {
   return {

@@ -1,22 +1,46 @@
 export type PlaybackState = "idle" | "playing" | "paused" | "ended";
-export type AnimationClock = Readonly<{ value: number; min: number; max: number; step: number; state: PlaybackState; loop: "repeat" | "once" }>;
-export type Triangle = readonly [[number, number], [number, number], [number, number]];
-export function subdivideTriangle(depth: number, triangle: Triangle): Triangle[] {
-  if (depth <= 0) return [triangle];
-  const [a, b, c] = triangle;
-  const midpoint = (left: readonly [number, number], right: readonly [number, number]): [number, number] => [(left[0] + right[0]) / 2, (left[1] + right[1]) / 2];
-  const ab = midpoint(a, b); const bc = midpoint(b, c); const ca = midpoint(c, a);
-  return [...subdivideTriangle(depth - 1, [a, ab, ca]), ...subdivideTriangle(depth - 1, [ab, b, bc]), ...subdivideTriangle(depth - 1, [ca, bc, c])];
-}
-export const sierpinskiTriangles = subdivideTriangle;
+export type PlaybackMode = "pingPong" | "repeat" | "once" | "indefinite";
+export type AnimationClock = Readonly<{
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  speed: number;
+  direction: 1 | -1;
+  state: PlaybackState;
+  mode: PlaybackMode;
+  elapsed: number;
+}>;
 
-export function createAnimationClock(min: number, max: number, step: number, value = min): AnimationClock {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max || !Number.isFinite(step) || step <= 0) throw new Error("Animation bounds require finite min < max and a positive step");
-  return { value: Math.min(max, Math.max(min, value)), min, max, step, state: "idle", loop: "repeat" };
+export function createAnimationClock(min: number, max: number, step: number, value = min, mode: PlaybackMode = "repeat"): AnimationClock {
+  if (![min, max, step, value].every(Number.isFinite) || min >= max || step <= 0)
+    throw new Error("Animation bounds require finite min < max, finite value and a positive step");
+  return { value: Math.min(max, Math.max(min, value)), min, max, step, speed: 1, direction: 1, state: "idle", mode, elapsed: 0 };
 }
-
-export function advanceAnimation(clock: AnimationClock): AnimationClock {
-  const next = clock.value + clock.step;
-  if (next <= clock.max) return { ...clock, value: next };
-  return clock.loop === "repeat" ? { ...clock, value: clock.min } : { ...clock, value: clock.max, state: "ended" };
+export const playAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, state: "playing" });
+export const pauseAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, state: "paused" });
+export const resetAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, value: clock.min, direction: 1, state: "idle", elapsed: 0 });
+export function setAnimationSpeed(clock: AnimationClock, speed: number): AnimationClock {
+  if (!Number.isFinite(speed) || speed <= 0 || speed > 100) throw new Error("Animation speed must be finite and in (0,100]");
+  return { ...clock, speed };
+}
+export function advanceAnimation(clock: AnimationClock, ticks = 1): AnimationClock {
+  if (clock.state !== "playing" || !Number.isFinite(ticks) || ticks <= 0) return clock;
+  const delta = clock.step * clock.speed * ticks;
+  const span = clock.max - clock.min;
+  if (clock.mode === "indefinite") return { ...clock, value: clock.value + delta * clock.direction, elapsed: clock.elapsed + ticks };
+  const next = clock.value + delta * clock.direction;
+  if (clock.mode === "once") {
+    const value = Math.min(clock.max, Math.max(clock.min, next));
+    return { ...clock, value, state: value === clock.max || value === clock.min ? "ended" : "playing", elapsed: clock.elapsed + ticks };
+  }
+  if (clock.mode === "repeat") {
+    const value = clock.min + (((next - clock.min) % span) + span) % span;
+    return { ...clock, value, elapsed: clock.elapsed + ticks };
+  }
+  const cycle = 2 * span;
+  const unfolded = clock.direction === 1 ? clock.value - clock.min : cycle - (clock.value - clock.min);
+  const phase = (((unfolded + delta) % cycle) + cycle) % cycle;
+  const descending = phase > span;
+  return { ...clock, value: clock.min + (descending ? cycle - phase : phase), direction: descending ? -1 : 1, elapsed: clock.elapsed + ticks };
 }

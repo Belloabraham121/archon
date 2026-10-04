@@ -1,9 +1,19 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { FormulaSceneView } from "./FormulaSceneView.js";
+import type { SceneId } from "@incantly/core";
+import type { NoteBinding } from "@incantly/math";
+import type { SceneRepository } from "@incantly/scene";
 
-export const FormulaScene = Node.create({
+export type FormulaSceneOptions = Readonly<{
+  repository?: SceneRepository;
+  getNoteBindings?: (sceneId: SceneId) => readonly NoteBinding[];
+  onOpen?: (sceneId: SceneId) => void;
+}>;
+
+export const FormulaScene = Node.create<FormulaSceneOptions>({
   name: "formulaScene",
+  addOptions: () => ({}),
   group: "block",
   atom: true,
   isolating: true,
@@ -19,4 +29,4 @@ export const FormulaScene = Node.create({
   addNodeView: () => ReactNodeViewRenderer(FormulaSceneView),
 });
 
-export function createFormulaSceneExtensions() { return [FormulaScene]; }
+export function createFormulaSceneExtensions(options: FormulaSceneOptions = {}) { return [FormulaScene.configure(options)]; }
