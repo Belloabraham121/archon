@@ -7,13 +7,13 @@ import type { AstNode, Expression, Value } from "./types.js";
 export type WorksheetRow = Readonly<{ id: string; source: string; visible?: boolean }>;
 export type WorksheetResult = Readonly<{ id: string; source: string; definition?: string | undefined; value?: Value; graphable: boolean; diagnostics: readonly Diagnostic[]; expression?: Expression }>;
 
-const builtins = new Set(["sin", "cos", "tan", "sqrt", "abs", "exp", "log", "x", "pi", "e"]);
+const builtins = new Set(["sin", "cos", "tan", "sqrt", "abs", "exp", "log", "point", "midpoint", "distance", "triangle", "polygon", "segment", "circle", "join", "dilate", "tone", "mean", "median", "stdev", "variance", "count", "sum", "min", "max", "q1", "q3", "covariance", "correlation", "regression", "det", "inverse", "rref", "transpose", "trace", "matmul", "zMean", "tMean", "zProportion", "chiSquareGoodnessOfFit", "chiSquareIndependence", "x", "pi", "e"]);
 
 function references(node: AstNode, output = new Set<string>()): Set<string> {
   if (node.kind === "name") output.add(node.value);
   else if (node.kind === "unary") references(node.value, output);
   else if (node.kind === "binary") { references(node.left, output); references(node.right, output); }
-  else if (node.kind === "call") node.args.forEach((argument) => references(argument, output));
+  else if (node.kind === "call") { if (!builtins.has(node.name)) output.add(node.name); node.args.forEach((argument) => references(argument, output)); }
   else if (node.kind === "tuple" || node.kind === "list") node.values.forEach((value) => references(value, output));
   return output;
 }
@@ -43,13 +43,16 @@ export function evaluateWorksheet(rows: readonly WorksheetRow[], externalScope: 
     visiting.add(index);
     const scope = new Map(baseScope);
     for (const name of references(entry.result.value.ast)) {
+      if (name === entry.result.value.parameter) continue;
       const dependency = definitions.get(name);
       if (dependency === undefined) continue;
       const value = resolve(dependency);
       if (!value.ok) { visiting.delete(index); const failed: Result<Value> = { ok: false, diagnostics: value.diagnostics }; cache.set(index, failed); return failed; }
       scope.set(name, value.value);
     }
-    const result = evaluateAst(entry.result.value.ast, scope);
+    const parameter = entry.result.value.parameter;
+    const unresolved = [...references(entry.result.value.ast)].find((name) => name !== parameter && !builtins.has(name) && !scope.has(name));
+    const result: Result<Value> = unresolved ? { ok: false, diagnostics: [makeDiagnostic("unknown_symbol", "resolve", `Unknown variable '${unresolved}'`)] } : parameter ? { ok: true, value: { kind: "function", parameter, body: entry.result.value.ast, closure: scope }, diagnostics: [] } : evaluateAst(entry.result.value.ast, scope);
     visiting.delete(index);
     cache.set(index, result);
     return result;
@@ -60,20 +63,23 @@ export function evaluateWorksheet(rows: readonly WorksheetRow[], externalScope: 
     if (!result.ok) return { id: row.id, source: row.source, graphable: false, diagnostics: result.diagnostics };
     const expression = result.value;
     const names = references(expression.ast);
-    const graphable = expression.definition === "y" || (!expression.definition && names.has("x"));
+    const graphable = expression.definition === "y" || Boolean(expression.parameter || expression.domain) || (!expression.definition && names.has("x"));
     // A graphing row is evaluated per x by the plot sampler, not at a fabricated x=0.
     if (graphable) {
       const scope = new Map(baseScope);
       for (const name of names) {
+        if (name === expression.parameter || name === expression.domain?.variable) continue;
         const dependency = definitions.get(name);
         if (dependency === undefined) continue;
         const value = resolve(dependency);
         if (!value.ok) return { id: row.id, source: row.source, definition: expression.definition, graphable: false, expression, diagnostics: value.diagnostics };
         scope.set(name, value.value);
       }
-      const unknown = [...names].find((name) => !builtins.has(name) && !scope.has(name));
+      const unknown = [...names].find((name) => name !== expression.parameter && name !== expression.domain?.variable && !builtins.has(name) && !scope.has(name));
       if (unknown) return { id: row.id, source: row.source, definition: expression.definition, graphable: false, expression, diagnostics: [makeDiagnostic("unknown_symbol", "resolve", `Unknown variable '${unknown}'`)] };
-      return { id: row.id, source: row.source, definition: expression.definition, graphable: true, expression, diagnostics: [] };
+      const value = expression.parameter ? resolve(index) : undefined;
+      if (value && !value.ok) return { id: row.id, source: row.source, definition: expression.definition, graphable: false, expression, diagnostics: value.diagnostics };
+      return { id: row.id, source: row.source, definition: expression.definition, graphable: true, expression, ...(value?.ok ? { value: value.value } : {}), diagnostics: [] };
     }
     const value = resolve(index);
     return value.ok ? { id: row.id, source: row.source, definition: expression.definition, value: value.value, graphable: false, expression, diagnostics: [] } : { id: row.id, source: row.source, definition: expression.definition, graphable: false, expression, diagnostics: value.diagnostics };

@@ -11,3 +11,6 @@ export * from "./data-table.js";
 export * from "./repository.js";
 export * from "./audio.js";
 export * from "./commands.js";
+export * from "./simulation.js";
+export * from "./simulation-worker-protocol.js";
+export * from "./sliders.js";

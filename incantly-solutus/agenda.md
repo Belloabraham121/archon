@@ -69,16 +69,16 @@ Exit gate: graph, geometry, statistics and note integration share one engine, pe
 
 ## Phase 4 — simulation kernel
 
-- [ ] Close the [period/amplitude Desmos parity gaps](docs/tesmos/period-amplitude-parity.md): authored `f(x)` definitions/calls, parameter-restricted 2D guides and dashed styles
-- [ ] Persist per-scalar slider constraints and playback; verify constrained `(p,a)` dragging updates both formulas in one undoable revision
+- [x] Implement the expression/rendering slice of the [period/amplitude Desmos parity gaps](docs/tesmos/period-amplitude-parity.md): authored `f(x)` definitions/calls, parameter-restricted 2D guides and dashed styles
+- [x] Persist per-scalar slider constraints and playback; constrain `(p,a)` dragging and update both formulas in one undoable revision
 - [ ] Compare the full Desmos example with the playground, including phase shift, and save paired screenshots before claiming parity
-- [ ] Fixed timestep, seed, pause, reset and checkpoints
-- [ ] Worker messages, revisions and cancellation
-- [ ] First deterministic 2D simulation
-- [ ] Quality, entity, memory and step budgets
-- [ ] Immutable frame snapshots
-- [ ] Replay/export state
-- [ ] Deferred end-to-end check documented
+- [x] Fixed timestep, seed, pause, reset and checkpoints
+- [x] Worker messages, revisions and cancellation
+- [x] First deterministic 2D simulation from authored formulas
+- [x] Quality, entity, memory and step budgets for the first point-frame kernel
+- [x] Immutable frame snapshots
+- [x] Replay/export state
+- [x] Deferred end-to-end check documented in [Phase 4 progress](docs/sdk/phase4-progress.md)
 
 Exit gate: a formula-driven 2D simulation is reproducible and cannot block document editing; the period/amplitude expression and drag-parity checks also pass.
 

@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createExpressionEngine, evaluateWorksheet, movePointSources, worksheetScope, type InferenceValue, type PointSourceEdit, type WorksheetResult } from "@incantly/math";
-import { advanceAnimation, commitScene, createAnimationClock, createFormulaSceneRecord, createSceneHistory, createSonificationSession, deriveGeometry, deriveToneCommands, parseScene, pauseAnimation, playAnimation, redoScene, sampleFunction, sceneId, serializeScene, tablePoints, tableWorksheetRows, undoScene, visibleItems, type AnimationClock, type FormulaFolder, type FormulaItem, type FormulaItemId, type GeometryPrimitive, type Plot, type SceneCommand, type SonificationSession } from "@incantly/scene";
+import { advanceAnimation, commitScene, createAnimationClock, createFormulaSceneRecord, createSceneHistory, createSliderFromSource, createSonificationSession, deriveGeometry, deriveToneCommands, displayedAnimationValue, parseScene, pauseAnimation, playAnimation, readScalarAssignment, redoScene, sampleFunction, sampleParametric, sceneId, serializeScene, setAnimationSpeed, tablePoints, tableWorksheetRows, undoScene, visibleItems, type AnimationClock, type FormulaFolder, type FormulaItem, type FormulaItemId, type GeometryPrimitive, type Plot, type SceneCommand, type Slider, type SonificationSession } from "@incantly/scene";
 import { createWebAudioOutput } from "@incantly/audio-web";
 import { DataTableEditor } from "./DataTableEditor.js";
 import { MatrixGridEditor } from "./MatrixGridEditor.js";
+import { ScalarSliders } from "./ScalarSliders.js";
+import { FolderRow } from "./FolderRow.js";
+
+const SimulationPlayground = lazy(() => import("./SimulationPlayground.js").then((module) => ({ default: module.SimulationPlayground })));
 
 const WIDTH = 900;
 const HEIGHT = 560;
@@ -17,15 +21,15 @@ const toY = (y: number, viewport: Viewport) => HEIGHT - PADDING - ((y - viewport
 
 const plotPath = (plot: Plot, viewport: Viewport) => plot.segments.map((segment) => segment.map((point, index) => `${index ? "L" : "M"}${toX(point.x, viewport).toFixed(2)},${toY(point.y, viewport).toFixed(2)}`).join(" ")).join(" ");
 
-type Preset = { id: string; title: string; formula: string };
+type Preset = { id: string; title: string; formula: string; dashedRows?: readonly number[]; folders?: readonly Readonly<{ id: string; title: string; visible: boolean; rows: readonly number[] }>[] };
 
 const defaultPresets: readonly Preset[] = [
   { id: "sine-wave", title: "Sine wave", formula: "a = 1\ny = a * sin(x)" },
   { id: "cosine-wave", title: "Cosine wave", formula: "a = 1\ny = a * cos(x)" },
-  { id: "period-amplitude", title: "Period and amplitude", formula: "a = 4\np = 3\ny = a * cos(2 * pi * x / p)\nP = (p,a)\nV = segment((p,0),P)\nH = segment((0,a),P)" },
+  { id: "period-amplitude", title: "Period and amplitude", formula: "a = 4\np = 3\nf(x) = a * cos(2 * pi * x / p)\nP = (p,a)\nV = (p,a*t) {0<=t<=1}\nH = (p*t,a) {0<=t<=1}\nQ = (s,a)\nf(x-s)\ns = 0.01", dashedRows: [4, 5], folders: [{ id: "amplitude-visual", title: "Amplitude and Period Visual", visible: true, rows: [3, 4, 5] }, { id: "phase-shift", title: "Phase Shift", visible: false, rows: [6, 7, 8] }] },
   { id: "parabola", title: "Parabola", formula: "y = x^2" },
   { id: "damped-wave", title: "Damped wave", formula: "y = exp(-x) * sin(x)" },
-  { id: "projectile", title: "Projectile motion", formula: "t = 0.7\nv0 = 10\ng = 9.81\na = 45\nth = a * pi / 180\ny = x * tan(th) - g * x^2 / (2 * v0^2 * cos(th)^2)\nP = point(v0 * cos(th) * t, v0 * sin(th) * t - 0.5 * g * t^2)" },
+  { id: "projectile", title: "Projectile motion", formula: "v = 10\ng = 9.81\na = pi / 4\nt = 0.7\ny = x * tan(a) - g * x^2 / (2 * v^2 * cos(a)^2)\nP = (v * cos(a) * t, v * sin(a) * t - g * t^2 / 2)" },
   { id: "triangle", title: "Dependent triangle", formula: "A = (-6,-4)\nB = (0,5)\nC = (6,-4)\nT = triangle(A,B,C)\nM = midpoint(A,B)\nS = segment(C,M)" },
   { id: "sierpinski-one", title: "Sierpiński depth 1", formula: "A = (-6,-4)\nB = (0,5)\nC = (6,-4)\nT = triangle(A,B,C)\nP = join(dilate([T],A,0.5),dilate([T],B,0.5),dilate([T],C,0.5))" },
   { id: "matrix", title: "Matrix operations", formula: "M = [[1,2],[3,4]]\nD = det(M)\nI = inverse(M)" },
@@ -72,17 +76,15 @@ function GeometryLayer({ items, viewport, draggableIds, onPointDown }: { items: 
 }
 
 export function App() {
+  const [showSimulation, setShowSimulation] = useState(false);
   const [history, setHistory] = useState(() => createSceneHistory(parseScene(window.localStorage.getItem("incantly-playground-scene") ?? "") ?? createFormulaSceneRecord(sceneId("playground-scene"))));
   const scene = history.present;
-  const [sliderMin, setSliderMin] = useState(0);
-  const [sliderMax, setSliderMax] = useState(2);
-  const [sliderStep, setSliderStep] = useState(0.1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [sliderOverride, setSliderOverride] = useState<number | null>(null);
+  const [playingNames, setPlayingNames] = useState<ReadonlySet<string>>(() => new Set());
+  const [liveSliderValues, setLiveSliderValues] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [audioEnabled, setAudioEnabled] = useState(false);
   const audio = useRef<SonificationSession | null>(null);
   const [pointDrag, setPointDrag] = useState<{ id: FormulaItemId; edits: readonly PointSourceEdit[] } | null>(null);
-  const clock = useRef<AnimationClock | null>(null);
+  const clocks = useRef(new Map<string, AnimationClock>());
   const expressions = scene.items;
   const [viewport, setViewport] = useState<Viewport>(initialViewport);
   const [presets, setPresets] = useState<Preset[]>(loadPresets);
@@ -91,19 +93,22 @@ export function App() {
   const engine = useMemo(() => createExpressionEngine(), []);
   useEffect(() => { window.localStorage.setItem("incantly-playground-scene", serializeScene(scene)); }, [scene]);
   const tableRows = useMemo(() => tableWorksheetRows(scene.tables), [scene.tables]);
-  const evaluationItems = useMemo(() => pointDrag ? expressions.map((item) => {
-    const edit = pointDrag.edits.find((entry) => entry.id === item.id);
-    return edit ? { ...item, source: edit.source } : item;
-  }) : expressions, [expressions, pointDrag]);
+  const evaluationItems = useMemo(() => expressions.map((item) => {
+    const edit = pointDrag?.edits.find((entry) => entry.id === item.id);
+    if (edit) return { ...item, source: edit.source };
+    const scalar = readScalarAssignment(item.source);
+    const slider = scalar && scene.sliders.find((entry) => entry.name === scalar.name);
+    return slider ? { ...item, source: `${slider.name}=${liveSliderValues.get(slider.name) ?? slider.value}` } : item;
+  }), [expressions, pointDrag, scene.sliders, liveSliderValues]);
   const allResults = useMemo(() => evaluateWorksheet([...tableRows, ...evaluationItems]), [tableRows, evaluationItems]);
   const results = useMemo(() => allResults.slice(tableRows.length), [allResults, tableRows.length]);
   const dataPoints = useMemo(() => tablePoints(scene.tables, allResults), [scene.tables, allResults]);
   const scope = useMemo(() => {
     const values = new Map(worksheetScope(allResults));
-    const active = results.find((row) => row.definition && row.definition !== "y" && typeof row.value === "number" && (row.expression?.ast.kind === "number" || row.expression?.ast.kind === "unary"));
-    if (active?.definition && sliderOverride !== null) values.set(active.definition, sliderOverride);
+    const dragged = new Set(pointDrag?.edits.map((edit) => readScalarAssignment(edit.source)?.name).filter((name): name is string => Boolean(name)) ?? []);
+    for (const slider of scene.sliders) if (values.has(slider.name) && !dragged.has(slider.name)) values.set(slider.name, liveSliderValues.get(slider.name) ?? slider.value);
     return values;
-  }, [allResults, results, sliderOverride]);
+  }, [allResults, pointDrag, scene.sliders, liveSliderValues]);
   const visible = useMemo(() => new Set<string>(visibleItems(scene).map((item) => item.id)), [scene]);
   const tones = useMemo(() => deriveToneCommands(results, engine, scope, visible), [results, engine, scope, visible]);
   useEffect(() => { audio.current?.apply(tones); }, [tones]);
@@ -118,25 +123,20 @@ export function App() {
   };
   const geometry = useMemo(() => deriveGeometry(results.filter((row) => visible.has(row.id))), [results, visible]);
   const draggableIds = useMemo(() => new Set(geometry.filter((point) => point.kind === "point" && movePointSources(expressions, point.id, point.point.x, point.point.y).ok).map((point) => point.id)), [geometry, expressions]);
-  const sliderRow = results.find((row) => row.definition && row.definition !== "y" && typeof row.value === "number" && (row.expression?.ast.kind === "number" || row.expression?.ast.kind === "unary"));
-  const sliderValue = sliderOverride ?? sliderRow?.value;
+  const scalarNames = useMemo(() => new Set(results.filter((row) => visible.has(row.id) && row.definition && typeof row.value === "number" && (row.expression?.ast.kind === "number" || row.expression?.ast.kind === "unary")).map((row) => row.definition!)), [results, visible]);
+  const activeSliders = useMemo(() => scene.sliders.filter((slider) => scalarNames.has(slider.name)).map((slider) => ({ ...slider, value: liveSliderValues.get(slider.name) ?? slider.value })), [scene.sliders, scalarNames, liveSliderValues]);
   const plots = useMemo(() => results.flatMap((row) => {
     if (!row.graphable || !row.expression || !visible.has(row.id)) return [];
-    const plot = sampleFunction(row.id, engine, row.expression, viewport, scope, { samples: 1100, jumpThreshold: (viewport.yMax - viewport.yMin) * 2 });
-    return [{ id: row.id, path: plotPath(plot, viewport) }];
-  }), [results, engine, viewport, scope, visible]);
+    const plot = row.expression.domain ? sampleParametric(row.id, engine, row.expression, scope, { samples: 128, jumpThreshold: (viewport.yMax - viewport.yMin) * 2 }) : sampleFunction(row.id, engine, row.expression, viewport, scope, { samples: 1100, jumpThreshold: (viewport.yMax - viewport.yMin) * 2 });
+    return [{ id: row.id, path: plotPath(plot, viewport), lineStyle: expressions.find((item) => item.id === row.id)?.lineStyle ?? "solid" }];
+  }), [results, engine, viewport, scope, visible, expressions]);
   const apply = (command: SceneCommand) => setHistory((current) => {
     const next = commitScene(current, command);
     return next.ok ? next.value : current;
   });
   const updateExpression = (id: string, nextSource: string) => {
-    if (sliderRow?.id === id) { setSliderOverride(null); setIsPlaying(false); }
-    const assignment = nextSource.match(/^\s*[A-Za-z_]\w*\s*=\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*$/);
-    if (assignment) {
-      const value = Number(assignment[1]);
-      if (value > sliderMax) { setSliderMax(Math.ceil(value * 2)); setSliderMin(Math.floor(-value * 2)); }
-      if (value < sliderMin) { setSliderMin(Math.floor(value * 2)); setSliderMax(Math.ceil(-value * 2)); }
-    }
+    const name = results.find((row) => row.id === id)?.definition;
+    if (name) { clocks.current.delete(name); setPlayingNames((current) => new Set([...current].filter((entry) => entry !== name))); setLiveSliderValues((current) => { const next = new Map(current); next.delete(name); return next; }); }
     apply({ type: "item.source", id: id as FormulaItemId, source: nextSource });
   };
   const addExpression = () => apply({ type: "item.add", item: { id: `formula-${crypto.randomUUID()}` as FormulaItemId, source: "", visible: true } });
@@ -146,8 +146,8 @@ export function App() {
   };
   const loadGeneratedItem = (item: Preset) => {
     const lines = item.formula.split("\n").map((line) => line.trim()).filter(Boolean);
-    setSliderOverride(null); setIsPlaying(false); setPresetOpen(false);
-    apply({ type: "items.replace", items: lines.map((line, index) => ({ id: `formula-${index + 1}` as FormulaItemId, source: line, visible: true })) });
+    clocks.current.clear(); setPlayingNames(new Set()); setLiveSliderValues(new Map()); setPresetOpen(false);
+    apply({ type: "items.replace", items: lines.map((line, index) => ({ id: `formula-${index + 1}` as FormulaItemId, source: line, visible: true, ...(item.dashedRows?.includes(index) ? { lineStyle: "dashed" as const } : {}), ...(item.folders?.find((folder) => folder.rows.includes(index)) ? { folderId: item.folders.find((folder) => folder.rows.includes(index))!.id } : {}) })), sliders: lines.map(createSliderFromSource).filter((slider): slider is Slider => slider !== null), folders: item.folders?.map((folder) => ({ id: folder.id, title: folder.title, visible: folder.visible, collapsed: !folder.visible })) ?? [] });
   };
   const deletePreset = (id: string) => {
     setPresets((current) => {
@@ -160,26 +160,51 @@ export function App() {
     window.localStorage.removeItem(PRESET_DELETIONS_KEY);
     setPresets([...defaultPresets]);
   };
-  const togglePlayback = () => {
-    if (!sliderRow || typeof sliderValue !== "number") return;
-    if (isPlaying) { if (clock.current) clock.current = pauseAnimation(clock.current); setIsPlaying(false); return; }
-    clock.current = playAnimation(createAnimationClock(sliderMin, sliderMax, sliderStep, sliderValue));
-    setIsPlaying(true);
+  const updateSlider = (slider: Slider) => {
+    clocks.current.delete(slider.name);
+    setPlayingNames((current) => new Set([...current].filter((name) => name !== slider.name)));
+    setLiveSliderValues((current) => { const next = new Map(current); next.delete(slider.name); return next; });
+    apply({ type: "slider.upsert", slider });
   };
-  const setLiveSlider = (value: number) => {
-    setSliderOverride(value);
-    if (clock.current) clock.current = { ...clock.current, value };
+  const togglePlayback = (name: string) => {
+    const slider = scene.sliders.find((entry) => entry.name === name);
+    if (!slider) return;
+    if (playingNames.has(name)) {
+      const clock = clocks.current.get(name);
+      if (clock) { clocks.current.set(name, pauseAnimation(clock)); apply({ type: "slider.upsert", slider: { ...slider, value: displayedAnimationValue(clock) } }); }
+      setLiveSliderValues((current) => { const next = new Map(current); next.delete(name); return next; });
+      setPlayingNames((current) => new Set([...current].filter((entry) => entry !== name)));
+      return;
+    }
+    clocks.current.set(name, playAnimation(setAnimationSpeed(createAnimationClock(slider.min, slider.max, slider.step, liveSliderValues.get(name) ?? slider.value, slider.mode), slider.speed)));
+    setPlayingNames((current) => new Set(current).add(name));
+  };
+  const resetSlider = (name: string) => {
+    const slider = scene.sliders.find((entry) => entry.name === name);
+    if (slider) updateSlider({ ...slider, value: slider.min });
   };
   useEffect(() => {
-    if (!isPlaying || !sliderRow) return;
+    if (!playingNames.size) return;
     const timer = window.setInterval(() => {
-      if (!clock.current) return;
-      clock.current = advanceAnimation(clock.current);
-      setSliderOverride(clock.current.value);
-      if (clock.current.state === "ended") setIsPlaying(false);
+      const values: { name: string; value: number }[] = [];
+      const ended: string[] = [];
+      for (const name of playingNames) {
+        const clock = clocks.current.get(name);
+        if (!clock) continue;
+        const next = advanceAnimation(clock);
+        clocks.current.set(name, next);
+        values.push({ name, value: displayedAnimationValue(next) });
+        if (next.state === "ended") ended.push(name);
+      }
+      if (values.length) setLiveSliderValues((current) => new Map([...current, ...values.map((entry) => [entry.name, entry.value] as const)]));
+      if (ended.length) {
+        apply({ type: "sliders.batch", values: values.filter((entry) => ended.includes(entry.name)) });
+        setLiveSliderValues((current) => new Map([...current].filter(([name]) => !ended.includes(name))));
+        setPlayingNames((current) => new Set([...current].filter((name) => !ended.includes(name))));
+      }
     }, 120);
     return () => window.clearInterval(timer);
-  }, [isPlaying, sliderRow?.id]);
+  }, [playingNames]);
   const zoom = (factor: number) => setViewport((current) => {
     const xCenter = (current.xMin + current.xMax) / 2;
     const yCenter = (current.yMin + current.yMax) / 2;
@@ -197,8 +222,9 @@ export function App() {
     if (!item || !point || point.kind !== "point" || !movePointSources(expressions, id, point.point.x, point.point.y).ok) return;
     event.stopPropagation();
     event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
-    setSliderOverride(null);
-    setIsPlaying(false);
+    const playingValues = [...clocks.current].filter(([name]) => playingNames.has(name)).map(([name, clock]) => ({ name, value: displayedAnimationValue(clock) }));
+    if (playingValues.length) apply({ type: "sliders.batch", values: playingValues });
+    clocks.current.clear(); setPlayingNames(new Set()); setLiveSliderValues(new Map());
     setPointDrag({ id: item.id, edits: [] });
   };
   const movePointer = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -206,37 +232,50 @@ export function App() {
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = viewport.xMin + (event.clientX - bounds.left - PADDING / WIDTH * bounds.width) / (bounds.width * (WIDTH - 2 * PADDING) / WIDTH) * (viewport.xMax - viewport.xMin);
     const y = viewport.yMax - (event.clientY - bounds.top - PADDING / HEIGHT * bounds.height) / (bounds.height * (HEIGHT - 2 * PADDING) / HEIGHT) * (viewport.yMax - viewport.yMin);
-    const next = movePointSources(expressions, pointDrag.id, x, y);
+    const limits = new Map(scene.sliders.map((slider) => [slider.name, { min: slider.min, max: slider.max, step: slider.step }]));
+    const next = movePointSources(expressions, pointDrag.id, x, y, limits);
     if (next.ok) setPointDrag({ ...pointDrag, edits: next.value });
   };
   const endPointer = () => {
     if (pointDrag?.edits.length) {
       const edited = new Map(pointDrag.edits.map((edit) => [edit.id, edit.source]));
-      apply({ type: "items.replace", items: expressions.map((item) => ({ ...item, source: edited.get(item.id) ?? item.source })) });
+      const sliders = scene.sliders.map((slider) => {
+        const edit = pointDrag.edits.find((entry) => readScalarAssignment(entry.source)?.name === slider.name);
+        const assignment = edit ? readScalarAssignment(edit.source) : null;
+        return assignment ? { ...slider, value: assignment.value } : slider;
+      });
+      apply({ type: "items.replace", items: expressions.map((item) => ({ ...item, source: edited.get(item.id) ?? item.source })), sliders });
     }
     setPointDrag(null); drag.current = null;
   };
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand-mark">i</div><div><p className="eyebrow">Incantly SDK playground</p><h1>Formula scene</h1></div><div className="scene-picker"><button type="button" className="scene-picker-button" aria-haspopup="listbox" aria-expanded={presetOpen} onClick={() => setPresetOpen((open) => !open)}>Scenes ▾</button>{presetOpen ? <><div className="scene-picker-backdrop" onClick={() => setPresetOpen(false)} /><div className="scene-menu" role="listbox" aria-label="Generated scenes">{presets.length ? presets.map((item) => <div key={item.id} className="scene-option" role="option" aria-selected="false"><button type="button" className="scene-load" onClick={() => loadGeneratedItem(item)} title={item.formula}><span className="generated-item-title">{item.title}</span><code>{item.formula.split("\n")[0]}</code></button><button type="button" className="scene-delete" aria-label={`Delete ${item.title}`} onClick={() => deletePreset(item.id)}>×</button></div>) : <p className="scene-empty">No scenes left.</p>}<button type="button" className="scene-restore" onClick={restorePresets}>Restore scenes</button></div></> : null}</div><button type="button" className="audio-toggle" aria-label={audioEnabled ? "Mute all tones" : "Enable tones"} onClick={toggleAudio}>{audioEnabled ? "Mute sound" : "Enable sound"}</button><span className="status-pill"><span /> local preview</span></header>
-    <section className="workspace">
+    <header className="topbar"><div className="brand-mark">i</div><div><p className="eyebrow">Incantly SDK playground</p><h1>Formula scene</h1></div><button type="button" className="audio-toggle" onClick={() => setShowSimulation((current) => !current)}>{showSimulation ? "Graph editor" : "Simulation"}</button><div className="scene-picker"><button type="button" className="scene-picker-button" aria-haspopup="listbox" aria-expanded={presetOpen} onClick={() => setPresetOpen((open) => !open)}>Scenes ▾</button>{presetOpen ? <><div className="scene-picker-backdrop" onClick={() => setPresetOpen(false)} /><div className="scene-menu" role="listbox" aria-label="Generated scenes">{presets.length ? presets.map((item) => <div key={item.id} className="scene-option" role="option" aria-selected="false"><button type="button" className="scene-load" onClick={() => loadGeneratedItem(item)} title={item.formula}><span className="generated-item-title">{item.title}</span><code>{item.formula.split("\n")[0]}</code></button><button type="button" className="scene-delete" aria-label={`Delete ${item.title}`} onClick={() => deletePreset(item.id)}>×</button></div>) : <p className="scene-empty">No scenes left.</p>}<button type="button" className="scene-restore" onClick={restorePresets}>Restore scenes</button></div></> : null}</div><button type="button" className="audio-toggle" aria-label={audioEnabled ? "Mute all tones" : "Enable tones"} onClick={toggleAudio}>{audioEnabled ? "Mute sound" : "Enable sound"}</button><span className="status-pill"><span /> local preview</span></header>
+    {showSimulation ? <Suspense fallback={<p>Loading simulation workspace…</p>}><SimulationPlayground /></Suspense> : <section className="workspace">
       <aside className="expression-panel" aria-label="Expression editor">
         <div className="panel-heading"><span>Expressions</span><span className="panel-actions"><button type="button" aria-label="Undo" disabled={!history.past.length} onClick={() => setHistory(undoScene)}>↶</button><button type="button" aria-label="Redo" disabled={!history.future.length} onClick={() => setHistory(redoScene)}>↷</button><button type="button" aria-label="Add folder" onClick={() => apply({ type: "folder.add", folder: { id: crypto.randomUUID(), title: `Folder ${scene.folders.length + 1}`, collapsed: false, visible: true } })}>▰</button><button type="button" aria-label="Add table" onClick={addTable}>▦</button><button type="button" aria-label="Add expression" onClick={addExpression}>+</button></span></div>
-        {expressions.map((item, index) => <ExpressionRow key={item.id} index={index} item={item} result={results[index]} folders={scene.folders} onChange={updateExpression} onToggle={() => apply({ type: "item.visibility", id: item.id, visible: !item.visible })} onDelete={() => apply({ type: "item.remove", id: item.id })} onFolder={(folderId) => apply({ type: "item.move", id: item.id, index, folderId })} />)}
-        {scene.tables.map((table) => <DataTableEditor key={table.id} table={table} onCommand={apply} />)}
-        {sliderRow && typeof sliderValue === "number" ? <div className="slider-block"><div className="slider-label"><span>{sliderRow.definition}</span><output>{sliderValue.toFixed(2)}</output></div><div className="slider-actions"><button type="button" aria-label={isPlaying ? `Pause ${sliderRow.definition}` : `Play ${sliderRow.definition}`} onClick={togglePlayback}>{isPlaying ? "Ⅱ" : "▶"}</button><button type="button" aria-label={`Reset ${sliderRow.definition}`} onClick={() => { setIsPlaying(false); setLiveSlider(sliderMin); }}>↺</button></div><input aria-label={`Slider ${sliderRow.definition}`} type="range" min={sliderMin} max={sliderMax} step={sliderStep} value={Math.min(sliderMax, Math.max(sliderMin, sliderValue))} onChange={(event) => setLiveSlider(Number(event.target.value))} /><div className="slider-limits"><input aria-label="Slider minimum" type="number" value={sliderMin} onChange={(event) => setSliderMin(Number(event.target.value))} /><span>≤ {sliderRow.definition} ≤</span><input aria-label="Slider maximum" type="number" value={sliderMax} onChange={(event) => setSliderMax(Number(event.target.value))} /></div><label className="slider-step">Step <input aria-label="Slider step" type="number" min="0.0001" step="any" value={sliderStep} onChange={(event) => setSliderStep(Math.max(0.0001, Number(event.target.value) || 0.1))} /></label></div> : null}
-        <div className={`diagnostic-card${allResults.some((row) => row.diagnostics.length) ? " error" : ""}`}><span className="check">{allResults.some((row) => row.diagnostics.length) ? "!" : "✓"}</span><div><strong>{allResults.some((row) => row.diagnostics.length) ? "Expression error" : "No errors"}</strong><small>{allResults.find((row) => row.diagnostics.length)?.diagnostics[0]?.message ?? "All authored rows evaluated or are ready to plot"}</small></div></div>
         <div className="folder-card"><span className="folder-icon">▾</span><span>Graph 2D</span><small>{expressions.length} items</small></div>
-        {scene.folders.map((folder) => <div key={folder.id} className="folder-card"><button type="button" aria-label={`${folder.visible ? "Hide" : "Show"} folder ${folder.title}`} onClick={() => apply({ type: "folder.visibility", id: folder.id, visible: !folder.visible })}>{folder.visible ? "◉" : "○"}</button><span>{folder.title}</span><small>{expressions.filter((item) => item.folderId === folder.id).length} items</small></div>)}
+        {expressions.map((item, index) => {
+          const folder = scene.folders.find((entry) => entry.id === item.folderId);
+          const firstChild = folder && expressions.findIndex((entry) => entry.folderId === folder.id) === index;
+          return <Fragment key={item.id}>
+            {firstChild && folder ? <FolderRow folder={folder} count={expressions.filter((entry) => entry.folderId === folder.id).length} onCollapse={() => apply({ type: "folder.collapse", id: folder.id, collapsed: !folder.collapsed })} onVisibility={() => apply({ type: "folder.visibility", id: folder.id, visible: !folder.visible })} /> : null}
+            {!folder?.collapsed ? <ExpressionRow index={index} item={item} result={results[index]} folders={scene.folders} onChange={updateExpression} onToggle={() => apply({ type: "item.visibility", id: item.id, visible: !item.visible })} onDelete={() => apply({ type: "item.remove", id: item.id })} onFolder={(folderId) => apply({ type: "item.move", id: item.id, index, folderId })} /> : null}
+          </Fragment>;
+        })}
+        {scene.tables.map((table) => <DataTableEditor key={table.id} table={table} onCommand={apply} />)}
+        <ScalarSliders sliders={activeSliders} playing={playingNames} onChange={updateSlider} onPlay={togglePlayback} onReset={resetSlider} />
+        <div className={`diagnostic-card${allResults.some((row) => row.diagnostics.length) ? " error" : ""}`}><span className="check">{allResults.some((row) => row.diagnostics.length) ? "!" : "✓"}</span><div><strong>{allResults.some((row) => row.diagnostics.length) ? "Expression error" : "No errors"}</strong><small>{allResults.find((row) => row.diagnostics.length)?.diagnostics[0]?.message ?? "All authored rows evaluated or are ready to plot"}</small></div></div>
+        {scene.folders.filter((folder) => !expressions.some((item) => item.folderId === folder.id)).map((folder) => <FolderRow key={folder.id} folder={folder} count={0} onCollapse={() => apply({ type: "folder.collapse", id: folder.id, collapsed: !folder.collapsed })} onVisibility={() => apply({ type: "folder.visibility", id: folder.id, visible: !folder.visible })} />)}
         <div className="panel-footer"><span>Scene {scene.version}.0</span><span>Revision {scene.revision}</span></div>
       </aside>
-      <section className="graph-panel" aria-label="2D graph viewport"><div className="viewport-toolbar"><span>2D viewport</span><span className="toolbar-hint">Drag to pan · scroll to zoom</span><span className="zoom-controls"><button type="button" aria-label="Zoom in" onClick={() => zoom(0.8)}>+</button><button type="button" aria-label="Zoom out" onClick={() => zoom(1.25)}>−</button><button type="button" onClick={() => setViewport(initialViewport)}>Reset</button></span></div><svg className="graph" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={`Graph of ${plots.length} expressions and ${geometry.length} geometry items and ${dataPoints.length} table points`} onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.9 : 1.1); }} onPointerDown={beginPan} onPointerMove={movePointer} onPointerUp={endPointer} onPointerCancel={endPointer}><rect width={WIDTH} height={HEIGHT} className="graph-background" /><Grid viewport={viewport} />{plots.map((plot) => <path key={plot.id} d={plot.path} className="plot" />)}<GeometryLayer items={geometry} viewport={viewport} draggableIds={draggableIds} onPointDown={beginPointDrag} />{dataPoints.map((point, index) => <circle key={index} cx={toX(point.x, viewport)} cy={toY(point.y, viewport)} r="5" className="data-point" />)}<text x={WIDTH - PADDING + 8} y={HEIGHT / 2 - 10} className="axis-label">x</text><text x={WIDTH / 2 + 8} y={PADDING - 8} className="axis-label">y</text></svg><div className="viewport-footer"><span>{plots.length} plots · {geometry.length} geometry items · {dataPoints.length} table points</span><span>{(20 / (viewport.xMax - viewport.xMin)).toFixed(2)}× · bounded viewport</span></div></section>
-    </section>
+      <section className="graph-panel" aria-label="2D graph viewport"><div className="viewport-toolbar"><span>2D viewport</span><span className="toolbar-hint">Drag to pan · scroll to zoom</span><span className="zoom-controls"><button type="button" aria-label="Zoom in" onClick={() => zoom(0.8)}>+</button><button type="button" aria-label="Zoom out" onClick={() => zoom(1.25)}>−</button><button type="button" onClick={() => setViewport(initialViewport)}>Reset</button></span></div><svg className="graph" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={`Graph of ${plots.length} expressions and ${geometry.length} geometry items and ${dataPoints.length} table points`} onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.9 : 1.1); }} onPointerDown={beginPan} onPointerMove={movePointer} onPointerUp={endPointer} onPointerCancel={endPointer}><rect width={WIDTH} height={HEIGHT} className="graph-background" /><Grid viewport={viewport} />{plots.map((plot) => <path key={plot.id} d={plot.path} className={`plot${plot.lineStyle === "dashed" ? " dashed" : ""}`} />)}<GeometryLayer items={geometry} viewport={viewport} draggableIds={draggableIds} onPointDown={beginPointDrag} />{dataPoints.map((point, index) => <circle key={index} cx={toX(point.x, viewport)} cy={toY(point.y, viewport)} r="5" className="data-point" />)}<text x={WIDTH - PADDING + 8} y={HEIGHT / 2 - 10} className="axis-label">x</text><text x={WIDTH / 2 + 8} y={PADDING - 8} className="axis-label">y</text></svg><div className="viewport-footer"><span>{plots.length} plots · {geometry.length} geometry items · {dataPoints.length} table points</span><span>{(20 / (viewport.xMax - viewport.xMin)).toFixed(2)}× · bounded viewport</span></div></section>
+    </section>}
   </main>;
 }
 
 function ExpressionRow({ item, index, result, folders, onChange, onToggle, onDelete, onFolder }: { item: FormulaItem; index: number; result: WorksheetResult | undefined; folders: readonly FormulaFolder[]; onChange: (id: string, source: string) => void; onToggle: () => void; onDelete: () => void; onFolder: (folderId: string | null) => void }) {
   const diagnostic = result?.diagnostics[0];
   const inference = result?.value && typeof result.value === "object" && !Array.isArray(result.value) && "kind" in result.value && result.value.kind === "inference" ? (result.value as InferenceValue).result : null;
-  return <div className={`expression-card${index === 0 ? " active" : " muted"}`}><span className="expression-index">{index + 1}</span><div className="expression-row-body"><input aria-label={`Expression ${index + 1}`} aria-invalid={Boolean(diagnostic)} className={`expression-input${diagnostic ? " has-error" : ""}`} placeholder="Enter a formula" value={item.source} onChange={(event) => onChange(item.id, event.target.value)} /><MatrixGridEditor source={item.source} onSource={(source) => onChange(item.id, source)} />{diagnostic ? <small className="row-error">{diagnostic.message}</small> : inference ? <details className="inference-result"><summary>{inference.test}: statistic {inference.statistic.toFixed(3)}, p = {inference.pValue.toPrecision(3)}</summary><p>{inference.nullHypothesis}<br />{inference.alternativeHypothesis}</p><ol>{inference.steps.map((step) => <li key={step}>{step}</li>)}</ol><p>Assumptions: {inference.assumptions.join("; ")}</p>{inference.warnings.map((warning) => <p key={warning.code} className="row-error">{warning.message}</p>)}<strong>{inference.rejectNull ? "Reject H₀" : "Do not reject H₀"} at α = {inference.alpha}</strong></details> : result?.value !== undefined && typeof result.value !== "number" ? <small className="row-value" title={JSON.stringify(result.value)}>{JSON.stringify(result.value)}</small> : typeof result?.value === "number" && result.definition !== "y" ? <small className="row-value">= {result.value}</small> : null}</div><button type="button" className="row-action" aria-label={`${item.visible ? "Hide" : "Show"} expression ${index + 1}`} onClick={onToggle}>{item.visible ? "◉" : "○"}</button>{folders.length ? <select aria-label={`Folder for expression ${index + 1}`} value={item.folderId ?? ""} onChange={(event) => onFolder(event.target.value || null)}><option value="">No folder</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select> : null}<button type="button" className="row-action" aria-label={`Delete expression ${index + 1}`} onClick={onDelete}>×</button></div>;
+  return <div className={`expression-card${index === 0 ? " active" : " muted"}`}><span className="expression-index">{index + 1}</span><div className="expression-row-body"><input aria-label={`Expression ${index + 1}`} aria-invalid={Boolean(diagnostic)} className={`expression-input${diagnostic ? " has-error" : ""}`} placeholder="Enter a formula" value={item.source} onChange={(event) => onChange(item.id, event.target.value)} /><MatrixGridEditor source={item.source} onSource={(source) => onChange(item.id, source)} />{diagnostic ? <small className="row-error">{diagnostic.message}</small> : inference ? <details className="inference-result"><summary>{inference.test}: statistic {inference.statistic.toFixed(3)}, p = {inference.pValue.toPrecision(3)}</summary><p>{inference.nullHypothesis}<br />{inference.alternativeHypothesis}</p><ol>{inference.steps.map((step) => <li key={step}>{step}</li>)}</ol><p>Assumptions: {inference.assumptions.join("; ")}</p>{inference.warnings.map((warning) => <p key={warning.code} className="row-error">{warning.message}</p>)}<strong>{inference.rejectNull ? "Reject H₀" : "Do not reject H₀"} at α = {inference.alpha}</strong></details> : result?.value && typeof result.value === "object" && !Array.isArray(result.value) && "kind" in result.value && result.value.kind === "function" ? <small className="row-value">Function of {result.value.parameter}</small> : result?.value !== undefined && typeof result.value !== "number" ? <small className="row-value" title={JSON.stringify(result.value)}>{JSON.stringify(result.value)}</small> : typeof result?.value === "number" && result.definition !== "y" ? <small className="row-value">= {result.value}</small> : null}</div><button type="button" className="row-action" aria-label={`${item.visible ? "Hide" : "Show"} expression ${index + 1}`} onClick={onToggle}>{item.visible ? "◉" : "○"}</button>{folders.length ? <select aria-label={`Folder for expression ${index + 1}`} value={item.folderId ?? ""} onChange={(event) => onFolder(event.target.value || null)}><option value="">No folder</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select> : null}<button type="button" className="row-action" aria-label={`Delete expression ${index + 1}`} onClick={onDelete}>×</button></div>;
 }

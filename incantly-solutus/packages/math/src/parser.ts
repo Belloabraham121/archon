@@ -6,7 +6,30 @@ class ParseFailure extends Error { constructor(message: string, readonly start: 
 class Parser {
   private position = 0;
   constructor(private readonly source: string) {}
-  parse(): Result<Expression> { try { const definition = this.source.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/); if (definition) this.position = definition[0].length; const ast = this.additive(); this.skipSpace(); if (this.position !== this.source.length) throw new ParseFailure("Unexpected token", this.position, this.position + 1); return { ok: true, value: { id: `${this.source.length}:${this.source}` as ExpressionId, source: this.source, ast, ...(definition?.[1] ? { definition: definition[1] } : {}) }, diagnostics: [] }; } catch (error) { const failure = error instanceof ParseFailure ? error : new ParseFailure("Invalid expression", this.position, this.position + 1); return { ok: false, diagnostics: [makeDiagnostic("parse_error", "parse", failure.message, { start: failure.start, end: failure.end }, "Complete the expression before evaluating it.")] }; }
+  parse(): Result<Expression> {
+    try {
+      const functionDefinition = this.source.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*/);
+      const definition = functionDefinition ? null : this.source.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/);
+      if (functionDefinition || definition) this.position = (functionDefinition ?? definition)![0].length;
+      const ast = this.additive();
+      this.skipSpace();
+      let domain: Expression["domain"];
+      if (this.source[this.position] === "{") {
+        const match = this.source.slice(this.position).match(/^\{\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:<=|≤)\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:<=|≤)\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\}/);
+        if (!match) throw new ParseFailure("Expected a finite parameter domain such as {0<=t<=1}", this.position, this.source.length);
+        const min = Number(match[1]);
+        const max = Number(match[3]);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max || max - min > 1e6 || (ast.kind !== "tuple" && !(ast.kind === "call" && ast.name === "point"))) throw new ParseFailure("A parameter domain requires a point formula and finite min < max", this.position, this.position + match[0].length);
+        domain = { variable: match[2]!, min, max };
+        this.position += match[0].length;
+        this.skipSpace();
+      }
+      if (this.position !== this.source.length) throw new ParseFailure("Unexpected token", this.position, this.position + 1);
+      return { ok: true, value: { id: `${this.source.length}:${this.source}` as ExpressionId, source: this.source, ast, ...(functionDefinition ? { definition: functionDefinition[1]!, parameter: functionDefinition[2]! } : definition?.[1] ? { definition: definition[1] } : {}), ...(domain ? { domain } : {}) }, diagnostics: [] };
+    } catch (error) {
+      const failure = error instanceof ParseFailure ? error : new ParseFailure("Invalid expression", this.position, this.position + 1);
+      return { ok: false, diagnostics: [makeDiagnostic("parse_error", "parse", failure.message, { start: failure.start, end: failure.end }, "Complete the expression before evaluating it.")] };
+    }
   }
   private skipSpace(): void { while (/\s/.test(this.source[this.position] ?? "")) this.position += 1; }
   private match(token: string): boolean { this.skipSpace(); if (this.source.slice(this.position, this.position + token.length) !== token) return false; this.position += token.length; return true; }

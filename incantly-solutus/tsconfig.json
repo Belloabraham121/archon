@@ -7,6 +7,7 @@
       "@incantly/core": ["packages/core/src/index.ts"],
       "@incantly/math": ["packages/math/src/index.ts"],
       "@incantly/scene": ["packages/scene/src/index.ts"],
+      "@incantly/simulation-web": ["packages/simulation-web/src/index.ts"],
       "@incantly/tiptap": ["packages/tiptap/src/index.ts"],
       "@incantly/audio-web": ["packages/audio-web/src/index.ts"],
       "@incantly/optics": ["packages/optics/src/index.ts"],

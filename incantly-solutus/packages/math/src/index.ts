@@ -5,6 +5,7 @@ import type { Expression, ExpressionEngine, Scope, Value } from "./types.js";
 
 export * from "./types.js";
 export * from "./parser.js";
+export * from "./evaluator.js";
 export * from "./dependency-graph.js";
 export * from "./diagnostics.js";
 export * from "./analysis.js";

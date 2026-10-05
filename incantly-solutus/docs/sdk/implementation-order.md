@@ -171,6 +171,8 @@ Only add features that extend the proven 2D expression/viewport system.
 
 ## Phase 4 — renderer interface and simulation kernel
 
+Current status: **implementation slice in progress; exit gate open**. See [Phase 4 progress](phase4-progress.md) for code and verification boundaries.
+
 Prepare advanced visual work without prematurely committing to a graphics API.
 
 - Finalize the renderer interface and immutable frame snapshots in `@incantly/scene`.
@@ -190,18 +192,18 @@ Prepare advanced visual work without prematurely committing to a graphics API.
 
 ### To-do
 
-- [ ] Define fixed-timestep simulation state, clock, seed, pause, reset and checkpoint contracts.
-- [ ] Define worker request/response messages with session IDs, revisions and cancellation.
-- [ ] Implement one deterministic 2D simulation driven by formula parameters.
-- [ ] Add bounded particle/entity counts, step budgets, memory limits and quality tiers.
-- [ ] Publish immutable frame snapshots to the existing 2D renderer.
-- [ ] Add authored single-variable function definitions and calls (`f(x)=...`, `f(x-s)`) to the parser, dependency resolver, diagnostics and plot sampler; preserve row-by-row formulas rather than introducing a scene-specific function.
-- [ ] Add formula-driven parametric 2D curves/segments with parameter-domain restrictions (for example `(p,at)` for `0≤t≤1`) and dashed guide-line styles in the shared scene/renderer contract.
-- [ ] Persist independent min/max/step and playback settings for each scalar slider, and pass those constraints to the existing SDK `movePointSources` drag operation; dragging `(p,a)` must update both authored rows in one undoable revision.
+- [x] Define fixed-timestep simulation state, clock, seed, pause, reset and checkpoint contracts.
+- [x] Define worker request/response messages with session IDs, revisions and cancellation.
+- [x] Implement one deterministic 2D simulation driven by formula parameters.
+- [x] Add bounded particle/entity counts, step budgets, memory limits and quality tiers for the first point-frame kernel.
+- [x] Publish immutable frame snapshots to the existing 2D renderer boundary.
+- [x] Add authored single-variable function definitions and calls (`f(x)=...`, `f(x-s)`) to the parser, dependency resolver, diagnostics and plot sampler; preserve row-by-row formulas rather than introducing a scene-specific function.
+- [x] Add formula-driven parametric 2D curves/segments with numeric parameter-domain restrictions (for example `(p,at)` for `0≤t≤1`) and persisted dashed guide-line styles in the shared scene/renderer contract.
+- [x] Persist independent min/max/step and playback settings for each scalar slider, and pass those constraints to the existing SDK `movePointSources` drag operation; dragging `(p,a)` updates both authored rows in one undoable revision.
 - [ ] Compare the complete [Desmos period/amplitude example](https://www.desmos.com/calculator/qckplvwpkk) with the SDK playground: initial `(3,4)` state, constrained drag, both sliders, cosine curve, guides, phase shift, save/reopen and undo. Capture paired screenshots and record any remaining differences; do not mark exact parity complete from unit tests alone.
 - [ ] Ensure document edits remain responsive while simulation work is pending.
-- [ ] Add replay/export representation containing seed, initial state, parameters and clock state.
-- [ ] Record the end-to-end test to run later: start, pause, reset and replay a simulation, then edit the document while work is active and confirm no stale frame is committed.
+- [x] Add replay/export representation containing seed, initial state formulas, parameters and clock step.
+- [x] Record the end-to-end test to run later: start, pause, reset and replay a simulation, then edit the document while work is active and confirm no stale frame is committed; see [Phase 4 progress](phase4-progress.md).
 
 ## Phase 5 — WebGL and visible-material rendering
 

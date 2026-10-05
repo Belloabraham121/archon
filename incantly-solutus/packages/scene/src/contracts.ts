@@ -1,5 +1,6 @@
 import type { Color, NodeId, SceneId, Vec2, Vec3 } from "@incantly/core";
 import type { Expression } from "@incantly/math";
+import type { SimulationFrame } from "./simulation.js";
 
 export type Formula<T> = T | Expression;
 export type Transform2D = Readonly<{ position: Formula<Vec2>; rotation: Formula<number>; scale: Formula<Vec2> }>;
@@ -17,6 +18,13 @@ export type RenderFrame = Readonly<{ width: number; height: number; clearColor: 
 
 export interface Renderer {
   render(frame: RenderFrame): void;
+  resize(width: number, height: number): void;
+  dispose(): void;
+}
+
+/** A renderer consumes coherent simulation snapshots; it never owns solver state. */
+export interface Simulation2DRenderer {
+  renderSimulationFrame(frame: SimulationFrame): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }

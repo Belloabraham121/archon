@@ -20,6 +20,12 @@ export function createAnimationClock(min: number, max: number, step: number, val
 export const playAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, state: "playing" });
 export const pauseAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, state: "paused" });
 export const resetAnimation = (clock: AnimationClock): AnimationClock => ({ ...clock, value: clock.min, direction: 1, state: "idle", elapsed: 0 });
+/** Indefinite playback retains monotonic phase while a bounded slider displays its wrapped value. */
+export function displayedAnimationValue(clock: AnimationClock): number {
+  if (clock.mode !== "indefinite") return clock.value;
+  const span = clock.max - clock.min;
+  return clock.min + (((clock.value - clock.min) % span) + span) % span;
+}
 export function setAnimationSpeed(clock: AnimationClock, speed: number): AnimationClock {
   if (!Number.isFinite(speed) || speed <= 0 || speed > 100) throw new Error("Animation speed must be finite and in (0,100]");
   return { ...clock, speed };

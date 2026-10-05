@@ -17,6 +17,7 @@ h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
 .diagnostic-card.error { border-color: #71363e; color: #ffc1c5; background: #321d23; }.diagnostic-card.error .check { color: #f06c75; }.folder-card { display: flex; align-items: center; gap: 8px; margin: 12px 8px 0; padding: 9px; border-radius: 6px; color: #c8cad2; background: #1d1f25; font-size: 12px; }.folder-icon { color: #f2c94c; }.folder-card small { margin-left: auto; color: #777b88; font-size: 10px; }
 .generated-items { margin: 16px 8px 0; }.generated-items-heading { display: flex; justify-content: space-between; align-items: center; color: #c8cad2; font-size: 12px; font-weight: 650; }.generated-items-heading small { color: #777b88; font-size: 10px; font-weight: 500; }.generated-items-help { margin: 5px 0 8px; color: #777b88; font-size: 10px; }.generated-items-list { display: grid; gap: 6px; }.generated-item { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #30333c; border-radius: 7px; color: #c8cad2; background: #1d1f25; text-align: left; cursor: pointer; }.generated-item:hover, .generated-item.selected { border-color: #e4b93d; background: #29271e; }.generated-item-title { font-size: 11px; }.generated-item code { overflow: hidden; color: #f2c94c; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .graph-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0; background: #14161b; }.viewport-toolbar { flex: 0 0 58px; padding: 0 24px; color: #c7c9d1; font-size: 12px; }.toolbar-hint { color: #777b88; font-size: 11px; }.graph { display: block; flex: 1 1 auto; width: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }.graph-background { fill: #14161b; }.grid-line { stroke: #292c34; stroke-width: 1; }.axis { stroke: #8d919d; stroke-width: 1.4; }.plot { fill: none; stroke: #f2c94c; stroke-width: 3; stroke-linecap: round; }.axis-label { fill: #aeb1bb; font-size: 14px; }.tick-label { fill: #858995; font-size: 11px; user-select: none; }.viewport-footer { flex: 0 0 44px; width: 100%; padding: 0 24px; color: #f2c94c; font-family: monospace; font-size: 12px; }.viewport-footer span:last-child { color: #777b88; font-family: inherit; }
+.plot.dashed { stroke-dasharray: 9 7; stroke-width: 2; }
 .zoom-controls { display: inline-flex; gap: 4px; margin-left: auto; }.zoom-controls button { min-width: 25px; padding: 3px 7px; border: 1px solid #383b45; border-radius: 5px; color: #d8d9df; background: #22242b; cursor: pointer; }.zoom-controls button:hover { border-color: #f2c94c; color: #f2c94c; }.graph { cursor: grab; touch-action: none; }.graph:active { cursor: grabbing; }
 .sierpinski-plot polygon { fill: #3478b9; stroke: #3478b9; stroke-width: .03; }
 .expression-row-body { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
@@ -27,6 +28,20 @@ h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
 .draggable-point { cursor: grab; touch-action: none; }
 .draggable-point:hover .geometry-point-halo { opacity: 0.45; }
 .draggable-point:active { cursor: grabbing; }
+.simulation-workspace { display: grid; grid-template-columns: minmax(300px, 390px) minmax(0, 1fr); min-height: 0; flex: 1; background: #14161b; }
+.simulation-editor { overflow: auto; padding: 20px; border-right: 1px solid #30333b; color: #d9dce5; }
+.simulation-editor h2 { margin: 0 0 8px; font-size: 17px; }
+.simulation-editor p { color: #999eaa; font-size: 12px; line-height: 1.4; }
+.simulation-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+.simulation-row span { min-width: 18px; color: #838895; font-size: 12px; }
+.simulation-row input { min-width: 0; flex: 1; padding: 9px 10px; border: 1px solid #3d414c; border-radius: 5px; background: #1f222a; color: #f2c94c; font-family: monospace; }
+.simulation-editor button { margin: 8px 7px 0 0; padding: 7px 10px; border: 1px solid #4a4e58; border-radius: 5px; background: #292d36; color: #f0f1f4; cursor: pointer; }
+.simulation-editor button:hover { background: #383d48; }
+.simulation-controls { display: flex; margin-top: 12px; }
+.simulation-error { color: #ff8e8e !important; }
+.simulation-viewport { min-width: 0; min-height: 0; display: flex; align-items: stretch; }
+.simulation-viewport svg { width: 100%; height: 100%; }
+@media (max-width: 760px) { .simulation-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(240px, 45vh) minmax(320px, 1fr); }.simulation-editor { border-right: 0; border-bottom: 1px solid #30333b; } }
 .geometry-line { fill: none; stroke: #70a8f0; stroke-width: 2.5; }
 .geometry-polygon { fill: #3478b9; fill-opacity: .55; stroke: #9bc7f7; stroke-width: 1.5; }
 .panel-actions { display: inline-flex; gap: 4px; }

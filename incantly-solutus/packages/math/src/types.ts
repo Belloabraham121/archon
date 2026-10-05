@@ -8,7 +8,8 @@ export type ShapeValue = Readonly<{ kind: "polygon"; vertices: readonly PointVal
 export type InferenceValue = Readonly<{ kind: "inference"; result: InferenceResult }>;
 export type RegressionValue = Readonly<{ kind: "regression"; result: LinearRegression }>;
 export type ToneValue = Readonly<{ kind: "tone"; frequency: number; gain: number }>;
-export type Value = Scalar | PointValue | ShapeValue | InferenceValue | RegressionValue | ToneValue | readonly Value[];
+export type FunctionValue = Readonly<{ kind: "function"; parameter: string; body: AstNode; closure: ReadonlyMap<string, Value> }>;
+export type Value = Scalar | PointValue | ShapeValue | InferenceValue | RegressionValue | ToneValue | FunctionValue | readonly Value[];
 export type ExpressionId = string & { readonly __expressionId: unique symbol };
 export type AstNode =
   | Readonly<{ kind: "number"; value: number; start: number; end: number }>
@@ -18,7 +19,7 @@ export type AstNode =
   | Readonly<{ kind: "call"; name: string; args: readonly AstNode[]; start: number; end: number }>
   | Readonly<{ kind: "tuple"; values: readonly AstNode[]; start: number; end: number }>
   | Readonly<{ kind: "list"; values: readonly AstNode[]; start: number; end: number }>;
-export type Expression = Readonly<{ id: ExpressionId; source: string; definition?: string; ast: AstNode }>;
+export type Expression = Readonly<{ id: ExpressionId; source: string; definition?: string; parameter?: string; domain?: Readonly<{ variable: string; min: number; max: number }>; ast: AstNode }>;
 export type Scope = ReadonlyMap<string, Value>;
 export type AnalysisSnapshot = Readonly<{ itemId: string; revision: number; status: ValueStatus; graphable: boolean; value?: Value; diagnostics: readonly Diagnostic[] }>;
 export interface ExpressionEngine { parse(source: string): Result<Expression>; evaluate(expression: Expression, scope: Scope): Result<Value>; analyse(expression: Expression): readonly Diagnostic[]; }

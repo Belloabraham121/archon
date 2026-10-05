@@ -43,7 +43,8 @@ export function parseScene(raw: string): FormulaSceneRecord | undefined {
       const entry = item as Record<string, unknown>;
       if (typeof entry.id !== "string" || ids.has(entry.id) || typeof entry.source !== "string" || entry.source.length > 10_000 || typeof entry.visible !== "boolean") return undefined;
       ids.add(entry.id);
-      items.push({ id: entry.id as FormulaItemId, source: entry.source, visible: entry.visible, ...(typeof entry.folderId === "string" ? { folderId: entry.folderId } : {}) });
+      if (entry.lineStyle !== undefined && entry.lineStyle !== "solid" && entry.lineStyle !== "dashed") return undefined;
+      items.push({ id: entry.id as FormulaItemId, source: entry.source, visible: entry.visible, ...(typeof entry.folderId === "string" ? { folderId: entry.folderId } : {}), ...(entry.lineStyle ? { lineStyle: entry.lineStyle as "solid" | "dashed" } : {}) });
     }
     const folders: FormulaFolder[] = [];
     for (const folder of record.folders) {
@@ -55,11 +56,13 @@ export function parseScene(raw: string): FormulaSceneRecord | undefined {
     if (items.some((item) => item.folderId && !folders.some((folder) => folder.id === item.folderId))) return undefined;
     if (!Array.isArray(record.sliders) || record.sliders.length > 100) return undefined;
     const sliders: Slider[] = [];
+    const sliderNames = new Set<string>();
     for (const slider of record.sliders) {
       if (!slider || typeof slider !== "object") return undefined;
       const entry = slider as Record<string, unknown>;
-      if (typeof entry.name !== "string" || ![entry.value, entry.min, entry.max, entry.step].every((n) => typeof n === "number" && Number.isFinite(n)) || (entry.min as number) >= (entry.max as number) || (entry.step as number) <= 0 || typeof entry.playing !== "boolean") return undefined;
-      sliders.push({ name: entry.name, value: entry.value as number, min: entry.min as number, max: entry.max as number, step: entry.step as number, playing: false });
+      if (typeof entry.name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name) || sliderNames.has(entry.name) || ![entry.value, entry.min, entry.max, entry.step].every((n) => typeof n === "number" && Number.isFinite(n)) || (entry.min as number) >= (entry.max as number) || (entry.step as number) <= 0 || (entry.value as number) < (entry.min as number) || (entry.value as number) > (entry.max as number) || typeof entry.playing !== "boolean" || (entry.mode !== undefined && !["pingPong", "repeat", "once", "indefinite"].includes(entry.mode as string)) || (entry.speed !== undefined && (typeof entry.speed !== "number" || !Number.isFinite(entry.speed) || entry.speed <= 0 || entry.speed > 100))) return undefined;
+      sliderNames.add(entry.name);
+      sliders.push({ name: entry.name, value: entry.value as number, min: entry.min as number, max: entry.max as number, step: entry.step as number, playing: false, mode: (entry.mode as Slider["mode"] | undefined) ?? "repeat", speed: (entry.speed as number | undefined) ?? 1 });
     }
     const viewport = record.viewport;
     if (!viewport || typeof viewport !== "object") return undefined;
