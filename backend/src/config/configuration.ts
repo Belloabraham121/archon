@@ -1,0 +1,15 @@
+export default () => ({
+  NODE_ENV: process.env.NODE_ENV ?? 'development',
+  PORT: Number(process.env.PORT ?? 4000),
+  API_PREFIX: process.env.API_PREFIX ?? 'v1',
+  DATABASE_URL: process.env.DATABASE_URL ?? '',
+  REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  NATS_URL: process.env.NATS_URL ?? 'nats://localhost:4222',
+  BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? '',
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? 'http://localhost:4000',
+  CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+  TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY ?? '',
+  JEV_MODEL: process.env.JEV_MODEL ?? 'jev-latest',
+  JEV_TIMEOUT_MS: Number(process.env.JEV_TIMEOUT_MS ?? 2500),
+  JEV_MAX_CALLS_PER_MINUTE: Number(process.env.JEV_MAX_CALLS_PER_MINUTE ?? 600),
+});
