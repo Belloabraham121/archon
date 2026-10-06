@@ -1,0 +1,54 @@
+name: archon
+
+# Local services for Archon backend development.
+# Matches backend/.env.example defaults. Start with: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: archon
+      POSTGRES_PASSWORD: archon
+      POSTGRES_DB: archon
+    # Host port 5433: this machine already runs its own Postgres on 5432.
+    # Override locally with:
+    #   DATABASE_URL=postgresql://archon:archon@localhost:5433/archon
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archon -d archon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8222/varz > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
+  natsdata:
