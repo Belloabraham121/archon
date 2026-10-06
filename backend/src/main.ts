@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -16,10 +16,11 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Routes live under /v1 (config API_PREFIX). Versioning is encoded in the
+  // prefix itself, so no additional URI versioning — /v1/intents, not /v1/1/….
   app.setGlobalPrefix(config.get<string>('API_PREFIX') ?? 'v1', {
     exclude: ['api/auth/(.*)', 'health'],
   });
-  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
   app.useGlobalPipes(
     new ValidationPipe({

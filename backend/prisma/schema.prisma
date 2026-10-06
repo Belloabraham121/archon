@@ -17,6 +17,8 @@ model User {
   email         String    @unique
   emailVerified Boolean   @default(false)
   name          String?
+  firstName     String?
+  lastName      String?
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -34,6 +36,7 @@ model Session {
   expiresAt DateTime
   ipAddress String?
   userAgent String?
+  activeOrganizationId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -104,15 +107,19 @@ model Invitation {
   createdAt      DateTime     @default(now())
 }
 
-// ---- Better Auth api-key plugin ----
+// ---- Archon-owned API keys (hashed at rest, plaintext shown once) ----
 model ApiKey {
   id             String    @id @default(cuid())
   key            String    @unique
+  prefix         String?
+  last4          String?
   name           String?
   userId         String
   organizationId String?
   environment    String    @default("test")
+  scopes         String[]  @default([])
   hashed         Boolean   @default(true)
+  revokedAt      DateTime?
   expiresAt      DateTime?
   lastUsedAt     DateTime?
   createdAt      DateTime  @default(now())
