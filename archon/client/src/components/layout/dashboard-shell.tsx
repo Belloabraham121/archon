@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { OrgSwitcher, UserFooter } from "@/components/layout/workspace-identity";
 
 const navigation = [
   { group: "Workspace", items: [
@@ -31,9 +32,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       <aside className="dashboard-scrollbar hidden h-screen overflow-y-auto border-r border-white/[.08] bg-[#0a0b0b] p-4 md:flex md:flex-col">
         <div className="px-2 py-3 brightness-0 invert"><BrandLogo /></div>
         <label className="mt-5 block px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/35" htmlFor="organization">Organization</label>
-        <select id="organization" className="mt-2 w-full rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-sm font-medium outline-none focus:border-[#6e86ff]">
-          <option>Archon Labs</option><option>Northstar Treasury</option><option>Atlas Wallet</option>
-        </select>
+        <OrgSwitcher />
         <nav className="mt-7 space-y-6" aria-label="Dashboard navigation">
           {navigation.map(({ group, items }) => (
             <div key={group}>
@@ -50,7 +49,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         <div className="mt-auto pt-8">
           <p className="px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/30">Environments</p>
           <div className="mt-3 space-y-2 px-2 text-xs text-white/48"><p><i className="mr-2 inline-block size-1.5 rounded-full bg-emerald-400" />Production</p><p><i className="mr-2 inline-block size-1.5 rounded-full bg-amber-300" />Staging</p><p><i className="mr-2 inline-block size-1.5 rounded-full bg-white/30" />Sandbox</p></div>
-          <div className="mt-5 flex items-center gap-3 border-t border-white/[.08] px-2 pt-4"><span className="grid size-8 place-items-center rounded-full bg-[#5268e8] text-xs font-semibold">AB</span><div><p className="text-xs font-medium">Abraham Bello</p><p className="text-[11px] text-white/35">Owner</p></div></div>
+        <UserFooter />
         </div>
       </aside>
       <div className="min-w-0">

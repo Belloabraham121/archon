@@ -11,6 +11,14 @@ export const auth = betterAuth({
   basePath: '/api/auth',
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   emailAndPassword: { enabled: true },
+  // Email + password only — no social/OAuth providers in Phase 1.
+  // firstName/lastName are required at signup, stored on User (see schema).
+  user: {
+    additionalFields: {
+      firstName: { type: 'string', required: true },
+      lastName: { type: 'string', required: true },
+    },
+  },
   // Organization plugin covers tenants (orgs + members + invitations).
   // API keys are Archon's own hashed table (see prisma ApiKey model) until
   // we adopt a first-party key plugin — Phase 2.

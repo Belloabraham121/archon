@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import configuration from './config/configuration';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
 import { HealthModule } from './health/health.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { TenancyModule } from './tenancy/tenancy.module';
@@ -23,6 +25,8 @@ import { AuditModule } from './audit/audit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    PrismaModule,
+    ApiKeysModule,
     AuthModule,
     HealthModule,
     GatewayModule,

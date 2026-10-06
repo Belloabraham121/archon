@@ -1,5 +1,10 @@
 # Archon backend rules
 
+Two documents govern every change here: this file (stack and workflow) and
+`../docs/error-handling-and-security.md` (error envelope, per-feature security
+checklist, mandatory Playwright proof). Follow both; on conflict, the
+standards doc wins.
+
 ## Required stack
 
 - NestJS 11 (Node.js + TypeScript), Express adapter, Socket.IO gateway
