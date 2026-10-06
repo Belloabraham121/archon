@@ -1,0 +1,12 @@
+# Build context is the repo root (opencompute/): keep it small.
+# NOTE: docker/.dockerignore does NOT apply — only this file does.
+.git/
+.DS_Store
+web/node_modules/
+web/.next/
+web/dist/
+packages/node/.venv/
+packages/node/outputs/
+packages/node/__pycache__/
+packages/appless/node_modules/
+packages/appless/dist/

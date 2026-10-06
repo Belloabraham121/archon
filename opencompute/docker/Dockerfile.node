@@ -1,27 +1,61 @@
-# One image for all roles. Role selected by ROLE env var.
-# CPU default; GPU workers run with `--gpus all` (see docker-compose.yml).
-FROM python:3.11-slim
+# One Dockerfile, two targets — relay stays light, workers get the ML stack.
+#
+# Speed tricks (a full torch download is ~450MB — don't repeat it):
+# - third-party deps install BEFORE code is copied, so edits to node/ reuse
+#   the cached torch layer instead of re-downloading;
+# - pip cache mount survives layer invalidation, so retries resume instead of
+#   restarting (needs BuildKit, on by default);
+# - CPU-only torch index (containers train on CPU; skips CUDA wheels);
+# - build-essential lives and dies in the builder stage, never ships.
+#
+#   relay: ~200MB — discovery, heartbeats, job fan-out. Never imports torch.
+#   node:  full worker/validator runtime.
+#
+# Role selected by ROLE env var. GPU workers use `--gpus all`.
 
+# ---------- base: runtime-only layers ----------
+FROM python:3.11-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_RETRIES=10 \
+    PIP_DEFAULT_TIMEOUT=120 \
     ROLE=worker
-
-WORKDIR /app
-
-# System deps (curl for healthchecks, build-essential for some wheels)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl build-essential \
+WORKDIR /app/packages/node
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install node package (light deps first for layer caching)
-COPY packages/node/pyproject.toml packages/node/README.md ./packages/node/
-COPY packages/node/node ./packages/node/node
-COPY packages/node/job.example.json ./packages/node/
+# ---------- builder: deps first (cached), code last ----------
+FROM base AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+COPY packages/node/pyproject.toml packages/node/README.md \
+    packages/node/requirements.txt packages/node/requirements-ml.txt ./
+# EXTRAS="" for relay, "[ml]" for node. Third-party layers below only
+# rebuild when these files change — never on code edits.
+ARG EXTRAS="[ml]"
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/pkg --no-warn-script-location -r requirements.txt \
+    && if [ "$EXTRAS" = "[ml]" ]; then pip install --prefix=/pkg --no-warn-script-location -r requirements-ml.txt; fi
+COPY packages/node/node ./node
+COPY packages/node/job.example.json ./
+# Local package only (--no-deps: third-party already installed above).
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-deps --prefix=/pkg . \
+    && find /pkg -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# ---------- relay: light, no torch ----------
+FROM base AS relay
+COPY --from=builder /pkg /usr/local
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh \
-    && pip install --no-cache-dir ./packages/node
-
-WORKDIR /app/packages/node
-
+RUN chmod +x /entrypoint.sh
+EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["start"]
+CMD []
+
+# ---------- node: full ML runtime (worker/validator) ----------
+FROM base AS node
+COPY --from=builder /pkg /usr/local
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD []

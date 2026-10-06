@@ -6,8 +6,10 @@ Node protocol (each message is JSON with a "type"):
   register       {node_id, role: worker|validator|viewer, caps?} -> registered
   heartbeat      {node_id} -> ack (send every HEARTBEAT_INTERVAL_S)
   list_nodes     {req_id} -> response {nodes: [...]}
-  list_jobs      {req_id} -> response {jobs: [...]}
+  list_jobs      {req_id} -> response {jobs: [...]} (full records)
+  get_job        {job_id, req_id} -> response {job} (manifest, times, result...)
   job_create     {manifest} -> job_available (broadcast) | error
+  set_token      {token} (viewer only) -> config_token fanned to workers+validators
   job_claim      {job_id, node_id} -> job_claimed (broadcast) | error
   job_update     {job_id, status, progress?, loss?} -> job_update (broadcast)
   result_submit  {job_id, node_id, output_hash, output_cid} -> validation_task
@@ -23,6 +25,7 @@ import json
 import time
 
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 
 from node.common.schemas import JobManifest, ValidatorVote
 from node.consensus.aggregator import Round
@@ -49,6 +52,10 @@ class Relay:
                     await self.dispatch(ws, json.loads(raw))
                 except Exception as exc:  # noqa: BLE001 - boundary must never crash on bad input
                     await self._send(ws, {"type": "error", "message": str(exc)})
+        except ConnectionClosed:
+            # Browsers and containers can disappear without a close frame.
+            # This is a normal disconnect, not a server failure.
+            pass
         finally:
             node_id = self._ws_node.pop(ws, None)
             if node_id and self.nodes.get(node_id, {}).get("ws") is ws:
@@ -109,6 +116,17 @@ class Relay:
                     "data": {"jobs": self.job_list()},
                 },
             )
+        elif kind == "get_job":
+            if msg["job_id"] not in self.jobs:
+                raise ValueError(f"unknown job: {msg['job_id']}")
+            await self._send(
+                ws,
+                {
+                    "type": "response",
+                    "req_id": msg.get("req_id"),
+                    "data": {"job": self.jobs[msg["job_id"]]},
+                },
+            )
         elif kind == "job_create":
             manifest = JobManifest.model_validate(msg["manifest"]).model_dump()
             job_id = manifest["job_id"]
@@ -119,6 +137,15 @@ class Relay:
                 "status": "AVAILABLE",
                 "worker_id": None,
                 "result": None,
+                "committee": [],
+                "votes": [],
+                "progress": None,
+                "loss": None,
+                "loss_series": [],
+                "created_at": time.time(),
+                "claimed_at": None,
+                "submitted_at": None,
+                "finalized_at": None,
             }
             await self.broadcast({"type": "job_available", "job": self.jobs[job_id]})
         elif kind == "job_claim":
@@ -128,16 +155,23 @@ class Relay:
             self._require(msg["node_id"])
             job["status"] = "CLAIMED"
             job["worker_id"] = msg["node_id"]
+            job["claimed_at"] = time.time()
             await self.broadcast(
                 {
                     "type": "job_claimed",
                     "job_id": job["manifest"]["job_id"],
                     "worker_id": msg["node_id"],
+                    "claimed_at": job["claimed_at"],
                 }
             )
         elif kind == "job_update":
             job = self._job(msg["job_id"])
             job["status"] = msg.get("status", job["status"])
+            if msg.get("progress") is not None:
+                job["progress"] = msg["progress"]
+            if msg.get("loss") is not None:
+                job["loss"] = msg["loss"]
+                job["loss_series"] = [*job["loss_series"][-499:], msg["loss"]]
             await self.broadcast(
                 {
                     "type": "job_update",
@@ -147,16 +181,72 @@ class Relay:
                     "loss": msg.get("loss"),
                 }
             )
+        elif kind == "job_failed":
+            job = self._job(msg["job_id"])
+            if job["worker_id"] != msg["node_id"]:
+                raise ValueError("only the claiming worker can fail a job")
+            job["status"] = "FAILED"
+            job["error"] = str(msg.get("error") or "worker task failed")[:1000]
+            job["finalized_at"] = time.time()
+            await self.broadcast(
+                {
+                    "type": "job_failed",
+                    "job_id": job["manifest"]["job_id"],
+                    "node_id": msg["node_id"],
+                    "error": job["error"],
+                }
+            )
+        elif kind == "node_error":
+            self._require(msg["node_id"])
+            await self.broadcast(
+                {
+                    "type": "node_error",
+                    "node_id": msg["node_id"],
+                    "job_id": msg.get("job_id"),
+                    "stage": msg.get("stage", "task"),
+                    "error": str(msg.get("error") or "node task failed")[:1000],
+                },
+                roles=("viewer",),
+            )
+        elif kind == "inference_request":
+            job = self._job(msg["job_id"])
+            worker_id = job.get("worker_id")
+            if not worker_id or not self.nodes.get(worker_id, {}).get("online"):
+                raise ValueError("the job worker is not online")
+            if not job.get("result"):
+                raise ValueError("the fine-tuned artifact is not ready")
+            await self.broadcast(
+                {
+                    "type": "inference_task",
+                    "req_id": msg.get("req_id"),
+                    "requester_id": self._ws_node.get(ws),
+                    "job_id": msg["job_id"],
+                    "prompt": str(msg.get("prompt", ""))[:4000],
+                    "max_new_tokens": int(msg.get("max_new_tokens", 40)),
+                },
+                roles=("worker",),
+                node_ids=[worker_id],
+            )
+            await self._send(
+                ws,
+                {"type": "inference_started", "req_id": msg.get("req_id"), "job_id": msg["job_id"]},
+            )
+        elif kind in ("inference_result", "inference_error"):
+            self._require(msg["node_id"])
+            requester = msg.get("requester_id")
+            await self.broadcast(msg, roles=("viewer",), node_ids=[requester] if requester else None)
         elif kind == "result_submit":
             job = self._job(msg["job_id"])
             if job["worker_id"] != msg["node_id"]:
                 raise ValueError("only the claiming worker can submit")
             job["status"] = "SUBMITTED"
             job["result"] = {"output_hash": msg["output_hash"], "output_cid": msg["output_cid"]}
+            job["submitted_at"] = time.time()
             validators = [
                 n for n, nd in self.nodes.items() if nd["role"] == "validator" and nd["online"]
             ]
             committee = assign(validators, job["worker_id"], size=3, seed=job["manifest"]["job_id"])
+            job["committee"] = committee
             self.rounds[job["manifest"]["job_id"]] = Round(job["manifest"]["job_id"], committee)
             await self.broadcast(
                 {
@@ -180,23 +270,49 @@ class Relay:
             rnd = self.rounds[msg["vote"]["job_id"]]
             vote = ValidatorVote.model_validate(msg["vote"])
             status = rnd.add_vote(vote)
+            vote_event = {
+                "job_id": vote.job_id,
+                "validator": msg["validator_id"],
+                "vote": vote.vote,
+                "status": status,
+                "evaluation_hash": vote.evaluation_hash,
+                "evaluation": vote.evaluation,
+            }
+            self.jobs[vote.job_id]["votes"].append(vote_event)
             await self.broadcast(
                 {
                     "type": "vote_accepted",
-                    "job_id": vote.job_id,
-                    "validator": msg["validator_id"],
-                    "vote": vote.vote,
-                    "status": status,
+                    **vote_event,
                 }
             )
             if status in ("VERIFIED", "REJECTED"):
                 self.jobs[vote.job_id]["status"] = status
+                self.jobs[vote.job_id]["finalized_at"] = time.time()
                 await self.broadcast(
                     {"type": "job_finalized", "job_id": vote.job_id, "result": status}
                 )
         elif kind == "node_metrics":
             self.metrics[msg["node_id"]] = msg
             await self.broadcast(msg, roles=("viewer",))
+        elif kind == "set_token":
+            # Demo-grade: viewer pushes a Hub token; relay fans it out so
+            # operators can authenticate downloads without restarting.
+            # Never expose this relay beyond localhost.
+            targets = [
+                n
+                for n, nd in self.nodes.items()
+                if nd["role"] in ("worker", "validator") and nd["online"]
+            ]
+            await self.broadcast(
+                {"type": "config_token", "token": msg["token"]},
+                roles=("worker", "validator"),
+                node_ids=targets,
+            )
+            await self._send(ws, {"type": "token_distributed", "count": len(targets)})
+        elif kind == "token_applied":
+            await self.broadcast(
+                {"type": "token_applied", "node_id": msg["node_id"]}, roles=("viewer",)
+            )
         else:
             raise ValueError(f"unknown message type: {kind}")
 
@@ -214,10 +330,7 @@ class Relay:
         ]
 
     def job_list(self):
-        return [
-            {"job_id": j, "status": d["status"], "worker_id": d["worker_id"]}
-            for j, d in self.jobs.items()
-        ]
+        return list(self.jobs.values())
 
     def _require(self, node_id):
         if node_id not in self.nodes:

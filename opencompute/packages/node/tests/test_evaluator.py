@@ -6,8 +6,9 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
+from node.common.schemas import JobManifest
 from node.validator import signing
-from node.validator.evaluator import check_integrity, evaluate_output
+from node.validator.evaluator import _benchmark_texts, check_integrity, evaluate_output
 
 
 @pytest.fixture(scope="module")
@@ -72,3 +73,51 @@ def test_reject_nan_weights(tmp_path):
     assert not ok and checks.get("bad_tensor") == "w"
     vote = evaluate_output(tmp_path, "validator_a", max_loss=1e9, min_score=0)
     assert vote.vote == "REJECT"
+
+
+def _manifest(benchmark=None):
+    return {
+        "job_id": "job_bench",
+        "model_cid": "hf:hf-internal-testing/tiny-random-gpt2",
+        "dataset_cid": "text:training words here",
+        "validation": {"benchmark_cid": benchmark} if benchmark else {},
+    }
+
+
+def test_benchmark_cid_schema_optional():
+    assert (
+        JobManifest.model_validate(_manifest("text:exam")).validation.benchmark_cid == "text:exam"
+    )
+    assert JobManifest.model_validate(_manifest()).validation.benchmark_cid is None
+
+
+def test_benchmark_texts_resolves_manifest(tmp_path):
+    (tmp_path / "manifest.json").write_text(json.dumps(_manifest("text:exam one")))
+    assert _benchmark_texts(tmp_path) == ["exam one"]
+    (tmp_path / "manifest.json").write_text(json.dumps(_manifest()))
+    assert _benchmark_texts(tmp_path) is None
+
+
+@pytest.fixture(scope="module")
+def benched_dir(tmp_path_factory):
+    """2-step run whose manifest carries a requester benchmark."""
+    from transformers import AutoModelForCausalLM
+
+    from node.miner.runner import MODEL_ID, train
+
+    d = tmp_path_factory.mktemp("job_bench")
+    adapter, losses = train(AutoModelForCausalLM.from_pretrained(MODEL_ID), steps=2, lr=2e-4)
+    adapter.save_pretrained(d)
+    (d / "training.json").write_text(
+        json.dumps({"losses": losses, "steps": 2, "final_loss": losses[-1]})
+    )
+    (d / "commitment.json").write_text(json.dumps({"output_hash": "cd" * 32}))
+    (d / "manifest.json").write_text(json.dumps(_manifest("text:the exam text for grading")))
+    return d
+
+
+def test_evaluate_grades_requester_benchmark(benched_dir):
+    a = evaluate_output(benched_dir, "validator_a", max_loss=1e9, min_score=0)
+    assert a.vote == "ACCEPT"
+    b = evaluate_output(benched_dir, "validator_a", max_loss=1e9, min_score=0)
+    assert a.evaluation_hash == b.evaluation_hash

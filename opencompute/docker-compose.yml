@@ -16,16 +16,24 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.node
-    image: protocol-node
+      target: relay
+      args:
+        EXTRAS: ""
+    image: protocol-node-relay
     command: ["relay", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
 
   worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      target: node
     image: protocol-node
     environment:
       ROLE: worker
       NODE_ID: worker_01
+      HF_TOKEN: ${HF_TOKEN:-}
       RELAY_URL: ws://relay:8000
       OUTPUT_DIR: /data/outputs
     volumes:
@@ -36,10 +44,15 @@ services:
     restart: unless-stopped
 
   validator-a:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      target: node
     image: protocol-node
     environment:
       ROLE: validator
       NODE_ID: validator_a
+      HF_TOKEN: ${HF_TOKEN:-}
       RELAY_URL: ws://relay:8000
       OUTPUT_DIR: /data/outputs
     volumes:
@@ -49,10 +62,15 @@ services:
     restart: unless-stopped
 
   validator-b:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      target: node
     image: protocol-node
     environment:
       ROLE: validator
       NODE_ID: validator_b
+      HF_TOKEN: ${HF_TOKEN:-}
       RELAY_URL: ws://relay:8000
       OUTPUT_DIR: /data/outputs
     volumes:
@@ -62,10 +80,15 @@ services:
     restart: unless-stopped
 
   validator-c:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      target: node
     image: protocol-node
     environment:
       ROLE: validator
       NODE_ID: validator_c
+      HF_TOKEN: ${HF_TOKEN:-}
       RELAY_URL: ws://relay:8000
       OUTPUT_DIR: /data/outputs
     volumes:

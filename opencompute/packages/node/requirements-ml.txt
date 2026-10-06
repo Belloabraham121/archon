@@ -1,0 +1,9 @@
+# Heavy ML stack — worker/validator only.
+# SOURCE OF TRUTH is pyproject.toml [project.optional-dependencies.ml]; keep in sync
+# (tests/test_packaging.py enforces it).
+# CPU-only torch index: containers train on CPU; avoids multi-GB CUDA wheels.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+transformers
+peft
+accelerate

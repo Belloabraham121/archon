@@ -18,6 +18,10 @@ class ValidationSpec(BaseModel):
     max_loss: float = 1.2
     validator_count: int = 3
     quorum: int = 2
+    # Requester-supplied exam: text:/file:/hf: ref to eval examples.
+    # Validators grade the output on THESE instead of synthetic batches.
+    # None = legacy synthetic eval.
+    benchmark_cid: str | None = None
 
 
 class RewardSpec(BaseModel):
@@ -51,5 +55,6 @@ class ValidatorVote(BaseModel):
     validator_pubkey: str
     vote: str  # ACCEPT | REJECT
     evaluation_hash: str
+    evaluation: dict | None = None
     timestamp: int = 0
     signature: str = ""

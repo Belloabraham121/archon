@@ -19,7 +19,7 @@ from pathlib import Path
 import torch
 
 from node.common.schemas import ValidatorVote
-from node.miner.runner import MODEL_ID
+from node.miner.runner import MODEL_ID, resolve_model_source
 from node.validator import signing
 
 EVAL_SEED = 42
@@ -67,23 +67,73 @@ def _load_tensors(weights: Path) -> dict:
     return obj if isinstance(obj, dict) else {"weight": obj}
 
 
+def _base_model_id(out_dir: Path) -> str:
+    """The base the worker trained — same artifact resolution as the runner."""
+    try:
+        cid = json.loads((out_dir / "manifest.json").read_bytes())["model_cid"]
+    except Exception:  # noqa: BLE001 - legacy outputs without manifest
+        return MODEL_ID
+    _kind, ref = resolve_model_source(cid)
+    return ref  # HF repo id or local dir — both loadable as the eval base
+
+
+def _benchmark_texts(out_dir: Path) -> list[str] | None:
+    """Requester's exam, if the manifest supplies one."""
+    from node.miner.runner import resolve_texts
+
+    try:
+        cid = json.loads((out_dir / "manifest.json").read_bytes())["validation"].get(
+            "benchmark_cid"
+        )
+    except Exception:  # noqa: BLE001 - legacy outputs without manifest
+        return None
+    return resolve_texts(cid) if cid else None
+
+
 def deterministic_eval(out_dir: str | Path, batches: int = EVAL_BATCHES) -> float | None:
-    """Reload base + adapter, mean causal-LM loss over fixed-seed batches."""
+    """Reload base + adapter, grade on the requester's benchmark if present.
+
+    Benchmark path: fixed-order chunks of the exam text — fully deterministic,
+    no seed needed. Fallback: fixed-seed synthetic batches (legacy).
+    """
     try:
         from peft import PeftModel
-        from transformers import AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        out = Path(out_dir)
         torch.manual_seed(EVAL_SEED)
-        base = AutoModelForCausalLM.from_pretrained(MODEL_ID)
-        model = PeftModel.from_pretrained(base, str(out_dir))
+        base_id = _base_model_id(out)
+        base = AutoModelForCausalLM.from_pretrained(base_id)
+        model = PeftModel.from_pretrained(base, str(out))
         model.eval()
-        vocab = model.config.vocab_size
+        texts = _benchmark_texts(out)
+        tokenizer = None
+        if texts:
+            from node.miner.runner import encode_texts
+
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(base_id)
+            except Exception:  # noqa: BLE001 - no tokenizer, fall back to synthetic
+                tokenizer = None
+            if tokenizer is None:
+                texts = None
         total = 0.0
+        count = 0
         with torch.no_grad():
-            for _ in range(batches):
-                ids = torch.randint(0, vocab, (4, 16))
-                total += float(model(input_ids=ids, labels=ids).loss)
-        return round(total / batches, 4)
+            if texts is not None:
+                assert tokenizer is not None
+                ids, labels = encode_texts(tokenizer, texts, seq_len=64)
+                for start in range(0, len(ids), 4):
+                    stop = start + 4
+                    total += float(model(input_ids=ids[start:stop], labels=labels[start:stop]).loss)
+                    count += 1
+            else:
+                vocab = model.config.vocab_size
+                for _ in range(batches):
+                    ids = torch.randint(0, vocab, (4, 16))
+                    total += float(model(input_ids=ids, labels=ids).loss)
+                    count += 1
+        return round(total / max(count, 1), 4)
     except Exception as exc:  # noqa: BLE001 - eval failure is a REJECT, not a crash
         print(f"deterministic eval failed ({exc})")
         return None
@@ -120,9 +170,18 @@ def evaluate_output(
         )
         else "REJECT"
     )
+    try:
+        benchmark_cid = (
+            json.loads((out / "manifest.json").read_bytes())
+            .get("validation", {})
+            .get("benchmark_cid")
+        )
+    except Exception:  # noqa: BLE001 - legacy outputs grade synthetic
+        benchmark_cid = None
     record = {
         "output_hash": output_hash,
         "eval_seed": EVAL_SEED,
+        "benchmark_cid": benchmark_cid,
         "eval_loss": eval_loss,
         "score": score,
         "final_loss": final_loss if math.isfinite(final_loss) else None,
@@ -143,5 +202,6 @@ def evaluate_output(
         validator_pubkey=signing.pubkey_hex(validator_id),
         vote=vote,
         evaluation_hash=evaluation_hash,
+        evaluation=record,
         signature=signature,
     )
