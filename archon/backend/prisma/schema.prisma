@@ -277,3 +277,22 @@ model OutboxEvent {
   @@index([published, createdAt])
   @@index([organizationId, environment, createdAt])
 }
+
+// Phase 4: side-effect-free policy replay. A job re-evaluates stored quotes
+// under a candidate version and records before/after outcomes as JSON.
+// Replay never writes decisions, executions, or webhooks.
+model ReplayJob {
+  id              String   @id @default(cuid())
+  organizationId  String
+  environment     String   @default("test")
+  policyVersionId String
+  name            String?
+  from            DateTime
+  to              DateTime
+  status          String   @default("complete")
+  stats           Json?
+  results         Json?
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}

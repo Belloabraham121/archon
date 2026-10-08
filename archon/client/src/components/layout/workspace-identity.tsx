@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { api, setActiveOrgId, type Organization } from "@/lib/api";
+import { notifyError } from "@/lib/notify";
 import {
   authClient,
   displayName,
@@ -32,16 +33,18 @@ export function OrgSwitcher() {
         setActiveId(next);
         setActiveOrgId(next || null);
       })
-      .catch(() => {
-        if (!cancelled) setOrgs([]);
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setOrgs([]);
+          notifyError(cause, "Could not load organizations");
+        }
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (orgs === null) {
-    return (
+  if (orgs === null) {    return (
       <div className="mt-2 w-full rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-sm text-white/35">
         Loading…
       </div>

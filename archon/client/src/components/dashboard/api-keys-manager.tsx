@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { notifyError, notifySuccess } from "@/lib/notify";
 
 type ApiKey = {
   id: string;
@@ -41,7 +42,7 @@ export function ApiKeysManager() {
     try {
       setKeys(await api<ApiKey[]>("/api-keys"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load keys");
+      setError(notifyError(err, "Failed to load keys"));
     }
   }, []);
 
@@ -53,7 +54,7 @@ export function ApiKeysManager() {
       })
       .catch((err: unknown) => {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to load keys");
+          setError(notifyError(err, "Failed to load keys"));
       });
     return () => {
       cancelled = true;
@@ -71,9 +72,10 @@ export function ApiKeysManager() {
       setCreated(key);
       setName("");
       setCopied(false);
+      notifySuccess("API key created", "Copy it now — it is shown only once");
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create key");
+      setError(notifyError(err, "Failed to create key"));
     } finally {
       setPending(false);
     }
@@ -83,9 +85,10 @@ export function ApiKeysManager() {
     setError(null);
     try {
       await api(`/api-keys/${id}/revoke`, { method: "POST" });
+      notifySuccess("API key revoked");
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke key");
+      setError(notifyError(err, "Failed to revoke key"));
     }
   }
 

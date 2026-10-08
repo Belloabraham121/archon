@@ -29,7 +29,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return (
     <div className="min-h-screen bg-[#070808] text-[#fffdf8] md:grid md:grid-cols-[17.5rem_1fr]">
-      <aside className="dashboard-scrollbar hidden h-screen overflow-y-auto border-r border-white/[.08] bg-[#0a0b0b] p-4 md:flex md:flex-col">
+      <aside className="dashboard-scrollbar hidden h-screen overflow-y-auto border-r border-white/[.08] bg-[#0a0b0b] p-4 md:sticky md:top-0 md:flex md:max-h-screen md:self-start md:flex-col">
         <div className="px-2 py-3 brightness-0 invert"><BrandLogo /></div>
         <label className="mt-5 block px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/35" htmlFor="organization">Organization</label>
         <OrgSwitcher />
