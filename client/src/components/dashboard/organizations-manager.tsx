@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { api, setActiveOrgId, type Organization } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { notifyError, notifySuccess } from "@/lib/notify";
 
 function slugify(name: string): string {
   return (
@@ -31,7 +32,7 @@ export function OrganizationsManager() {
       setError("");
     } catch (cause) {
       setOrgs([]);
-      setError(cause instanceof Error ? cause.message : "Could not load organizations");
+      setError(notifyError(cause, "Could not load organizations"));
     }
   }, []);
 
@@ -44,7 +45,7 @@ export function OrganizationsManager() {
       .catch((cause: unknown) => {
         if (!cancelled) {
           setOrgs([]);
-          setError(cause instanceof Error ? cause.message : "Could not load organizations");
+          setError(notifyError(cause, "Could not load organizations"));
         }
       });
     return () => {
@@ -68,9 +69,10 @@ export function OrganizationsManager() {
       if (createdId) setActiveOrgId(createdId);
       setName("");
       await load();
+      notifySuccess("Organization created", trimmed);
       if (createdId) router.push("/dashboard/intents");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create organization");
+      setError(notifyError(cause, "Could not create organization"));
     } finally {
       setCreating(false);
     }

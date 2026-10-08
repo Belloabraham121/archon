@@ -6,6 +6,7 @@ import { io } from "socket.io-client";
 
 import { activeOrgId, api } from "@/lib/api";
 import { API_URL } from "@/lib/auth-client";
+import { notifyError, notifySuccess } from "@/lib/notify";
 
 type Quote = {
   id: string;
@@ -97,7 +98,7 @@ export function IntentsWorkspace() {
       setError("");
     } catch (cause) {
       setItems([]);
-      setError(cause instanceof Error ? cause.message : "Could not load intents");
+      setError(notifyError(cause, "Could not load intents"));
     }
   }, []);
 
@@ -185,8 +186,12 @@ export function IntentsWorkspace() {
       });
       setItems((current) => [result, ...(current ?? []).filter((item) => item.intent.id !== result.intent.id)]);
       pick(result);
+      notifySuccess(
+        result.decision?.outcome === "DIRECT" ? "Intent routed" : "Intent needs review",
+        result.decision?.selectedVenue ?? undefined,
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not submit intent");
+      setError(notifyError(cause, "Could not submit intent"));
     } finally {
       setSubmitting(false);
     }
@@ -200,8 +205,9 @@ export function IntentsWorkspace() {
       const result = await api<IntentResult>(`/intents/${selected.intent.id}/requote`, { method: "POST" });
       setItems((current) => (current ?? []).map((item) => (item.intent.id === result.intent.id ? result : item)));
       pick(result);
+      notifySuccess("Quotes refreshed");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not requote");
+      setError(notifyError(cause, "Could not requote"));
     } finally {
       setRequoting(false);
     }
@@ -214,9 +220,11 @@ export function IntentsWorkspace() {
     try {
       const result = await api<Simulation>(`/intents/${selected.intent.id}/simulate`, { method: "POST" });
       setSimulation(result);
+      if (result.simulation.ok) notifySuccess("Simulation passed", `expected ${result.simulation.expectedOut ?? "—"}`);
+      else notifyError(new Error(result.simulation.error ?? "simulation failed"), "Simulation failed — plan blocked");
       await load();
     } catch (cause) {
-      setSimError(cause instanceof Error ? cause.message : "Could not simulate");
+      setSimError(notifyError(cause, "Could not simulate"));
     } finally {
       setSimulating(false);
     }

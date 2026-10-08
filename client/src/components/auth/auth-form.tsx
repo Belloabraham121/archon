@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { notifyError } from "@/lib/notify";
 
 type SignUpInput = {
   email: string;
@@ -69,7 +70,7 @@ export function AuthForm({ mode, submitLabel }: AuthFormProps) {
       router.push("/dashboard");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(notifyError(err, isSignup ? "Sign up failed" : "Sign in failed"));
     } finally {
       setPending(false);
     }

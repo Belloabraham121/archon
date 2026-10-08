@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { CreateIntentDto } from './dto/create-intent.dto';
 import { EventsGateway } from '../gateway/events.gateway';
 import { EventsService } from '../events/events.module';
+import { PoliciesService } from '../policies/policies.service';
+import { PolicyRules } from '../policies/rules';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainsService } from '../chains/chains.service';
 import { Quote as AdapterQuote } from '../chains/adapters/chain-adapter.interface';
@@ -56,6 +58,7 @@ export class IntentsService {
     private readonly eventLog: EventsService,
     private readonly prisma: PrismaService,
     private readonly chains: ChainsService,
+    private readonly policies: PoliciesService,
   ) {}
 
   async create(
@@ -89,7 +92,10 @@ export class IntentsService {
     const failedVenues = settled.flatMap((result, index) =>
       result.status === 'rejected' ? [this.venueOf(adapters[index])] : [],
     );
-    const constraints = (dto.constraints ?? {}) as Constraints;
+    // Effective policy: active published version rules as defaults, narrowed
+    // by per-intent constraints. The decision links the active version.
+    const active = await this.policies.activeRules(organizationId, environment);
+    const constraints = this.policies.resolveEffective(active.rules, ((dto.constraints ?? {}) as PolicyRules));
     const evaluation = evaluateDeterministicRoute(dto.amount, quotes, constraints);
     const contextFacts = {
       schemaVersion: 1,
@@ -110,24 +116,6 @@ export class IntentsService {
 
     try {
       const saved = await this.prisma.$transaction(async (tx) => {
-        const policy = await tx.policy.upsert({
-          where: { organizationId_environment_name: { organizationId, environment, name: 'Deterministic routing v0' } },
-          update: {},
-          create: { organizationId, environment, name: 'Deterministic routing v0' },
-        });
-        const policyVersion = await tx.policyVersion.upsert({
-          where: { policyId_version: { policyId: policy.id, version: 1 } },
-          update: {},
-          create: {
-            policyId: policy.id,
-            version: 1,
-            rules: {
-              approvedVenues: ['demo-amm', 'demo-rfq'],
-              maximumSlippageBps: 100,
-              maximumFeeBps: 100,
-            },
-          },
-        });
         const intent = await tx.executionIntent.create({
           data: {
             organizationId,
@@ -159,7 +147,7 @@ export class IntentsService {
               strategy: evaluation.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW',
               confidence: evaluation.outcome === 'DIRECT' ? 1 : null,
               reasons: evaluation.reasons,
-              policyVersionId: policyVersion.id,
+              policyVersionId: active.policyVersionId,
             } },
           },
           include: intentEvidence,
@@ -248,7 +236,9 @@ export class IntentsService {
     const failedVenues = settled.flatMap((result, index) =>
       result.status === 'rejected' ? [this.venueOf(adapters[index])] : [],
     );
-    const constraints = (existing.constraints ?? {}) as Constraints;
+    // Re-evaluated under the currently active published version.
+    const active = await this.policies.activeRules(organizationId, environment);
+    const constraints = this.policies.resolveEffective(active.rules, ((existing.constraints ?? {}) as PolicyRules));
     const evaluation = evaluateDeterministicRoute(existing.amount, quotes, constraints);
     const contextFacts = {
       schemaVersion: 1,
@@ -305,6 +295,7 @@ export class IntentsService {
           confidence: evaluation.outcome === 'DIRECT' ? 1 : null,
           reasons: evaluation.reasons,
           quoteSetId: quoteSet.id,
+          policyVersionId: active.policyVersionId,
         },
       });
       const intent = await tx.executionIntent.update({
