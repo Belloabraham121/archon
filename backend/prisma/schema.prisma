@@ -142,6 +142,7 @@ model ExecutionIntent {
   quoteSet       QuoteSet?
   context        ContextSnapshot?
   decision       Decision?
+  plan           ExecutionPlan?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -228,6 +229,23 @@ model Decision {
   @@index([organizationId, environment, createdAt])
 }
 
+// Phase 3: plan build + simulation gate. No signing or submission yet —
+// submitAuthorizedTransaction stays unimplemented until Phase 6.
+model ExecutionPlan {
+  id        String          @id @default(cuid())
+  intentId  String          @unique
+  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  venue     String
+  chain     String
+  plan      Json
+  simOk     Boolean
+  expectedOut String?
+  simError  String?
+  gas       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // Append-only lifecycle log. Backs GET /v1/events and the inspector
 // timeline; the NATS outbox publisher attaches in Phase 3.
 model Event {
@@ -240,5 +258,22 @@ model Event {
   createdAt      DateTime @default(now())
 
   @@index([intentId, createdAt])
+  @@index([organizationId, environment, createdAt])
+}
+
+// Phase 3: transactional outbox. State changes and the event destined for
+// NATS JetStream commit together; the publisher flips published once
+// delivered so recovery can replay the remainder.
+model OutboxEvent {
+  id             String   @id @default(cuid())
+  type           String
+  organizationId String
+  environment    String   @default("test")
+  intentId       String?
+  payload        Json?
+  published      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([published, createdAt])
   @@index([organizationId, environment, createdAt])
 }

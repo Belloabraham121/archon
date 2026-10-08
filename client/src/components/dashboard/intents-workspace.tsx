@@ -16,6 +16,16 @@ type Quote = {
   expiresAt: string;
 };
 
+type StoredPlan = {
+  id: string;
+  venue: string;
+  chain: string;
+  simOk: boolean;
+  expectedOut: string | null;
+  simError: string | null;
+  gas: string | null;
+} | null;
+
 type IntentResult = {
   replayed: boolean;
   intent: {
@@ -37,6 +47,30 @@ type IntentResult = {
     policyVersion: string | null;
     reasons: string[];
   } | null;
+  plan?: StoredPlan;
+};
+
+type Simulation = {
+  venue: string;
+  simulation: {
+    ok: boolean;
+    expectedOut: string | null;
+    error: string | null;
+    gas: string | null;
+    quotedOut: string;
+  };
+};
+
+type LifecycleEvent = {
+  id: string;
+  type: string;
+  intentId: string | null;
+  createdAt: string;
+};
+
+const VENUES_BY_CHAIN: Record<string, string[]> = {
+  demo: ["demo-amm", "demo-rfq"],
+  base: ["base-amm", "base-rfq"],
 };
 
 export function IntentsWorkspace() {
@@ -44,6 +78,12 @@ export function IntentsWorkspace() {
   const [selected, setSelected] = useState<IntentResult | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [requoting, setRequoting] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [simulation, setSimulation] = useState<Simulation | null>(null);
+  const [simError, setSimError] = useState("");
+  const [timeline, setTimeline] = useState<LifecycleEvent[] | null>(null);
+  const [nowTick, setNowTick] = useState(0);
   const [showNoOrgDialog, setShowNoOrgDialog] = useState(false);
   // undefined = org switcher has not resolved yet; null = no org exists.
   const [organizationId, setOrganizationId] = useState<string | null | undefined>(undefined);
@@ -65,6 +105,8 @@ export function IntentsWorkspace() {
     const handleOrg = () => {
       setItems(null);
       setSelected(null);
+      setSimulation(null);
+      setTimeline(null);
       setOrganizationId(activeOrgId());
     };
     window.addEventListener("archon:organization-changed", handleOrg);
@@ -86,6 +128,35 @@ export function IntentsWorkspace() {
     };
   }, [load, organizationId]);
 
+  // Tick every 5s so quote freshness badges age without a refetch.
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick((tick) => tick + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Load the lifecycle timeline for the selected intent.
+  useEffect(() => {
+    if (!selected || !organizationId) return;
+    let cancelled = false;
+    api<LifecycleEvent[]>(`/events?intent=${selected.intent.id}`)
+      .then((events) => {
+        if (!cancelled) setTimeline(events);
+      })
+      .catch(() => {
+        if (!cancelled) setTimeline([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, organizationId]);
+
+  function pick(item: IntentResult) {
+    setSelected(item);
+    setSimulation(null);
+    setSimError("");
+    setTimeline(null);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeOrgId()) {
@@ -93,6 +164,7 @@ export function IntentsWorkspace() {
       return;
     }
     const form = new FormData(event.currentTarget);
+    const chain = String(form.get("chain") || "demo");
     setSubmitting(true);
     setError("");
     try {
@@ -101,22 +173,52 @@ export function IntentsWorkspace() {
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           type: "swap",
-          chain: "demo",
+          chain,
           sell_asset: String(form.get("sellAsset")),
           buy_asset: String(form.get("buyAsset")),
           amount: String(form.get("amount")),
           constraints: {
             maximum_slippage_bps: Number(form.get("maximumSlippageBps")),
-            approved_venues: ["demo-amm", "demo-rfq"],
+            approved_venues: VENUES_BY_CHAIN[chain] ?? VENUES_BY_CHAIN.demo,
           },
         }),
       });
       setItems((current) => [result, ...(current ?? []).filter((item) => item.intent.id !== result.intent.id)]);
-      setSelected(result);
+      pick(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not submit intent");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function requote() {
+    if (!selected) return;
+    setRequoting(true);
+    setError("");
+    try {
+      const result = await api<IntentResult>(`/intents/${selected.intent.id}/requote`, { method: "POST" });
+      setItems((current) => (current ?? []).map((item) => (item.intent.id === result.intent.id ? result : item)));
+      pick(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not requote");
+    } finally {
+      setRequoting(false);
+    }
+  }
+
+  async function simulate() {
+    if (!selected) return;
+    setSimulating(true);
+    setSimError("");
+    try {
+      const result = await api<Simulation>(`/intents/${selected.intent.id}/simulate`, { method: "POST" });
+      setSimulation(result);
+      await load();
+    } catch (cause) {
+      setSimError(cause instanceof Error ? cause.message : "Could not simulate");
+    } finally {
+      setSimulating(false);
     }
   }
 
@@ -125,18 +227,19 @@ export function IntentsWorkspace() {
       <header>
         <p className="dashboard-eyebrow">Deterministic routing</p>
         <h1 className="mt-2 text-2xl font-medium tracking-[-.035em] sm:text-3xl">Live intents</h1>
-        <p className="mt-2 max-w-2xl text-sm text-white/42">Submit a normalized swap and inspect the quotes, context hash, policy evidence, and selected route.</p>
+        <p className="mt-2 max-w-2xl text-sm text-white/42">Submit a normalized swap and inspect the quotes, context hash, policy evidence, simulation, and selected route.</p>
       </header>
 
       <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(300px,.65fr)_minmax(0,1.35fr)]">
         <form onSubmit={submit} className="dashboard-panel overflow-hidden" aria-label="Create swap intent">
           <div className="border-b border-white/[.07] px-5 py-5">
             <p className="dashboard-eyebrow">New intent</p>
-            <h2 className="mt-2 text-lg font-medium">Compare demo venues</h2>
-            <p className="mt-2 text-xs leading-5 text-white/35">Describe the swap and Archon will compare both deterministic venue adapters.</p>
+            <h2 className="mt-2 text-lg font-medium">Compare venues</h2>
+            <p className="mt-2 text-xs leading-5 text-white/35">Describe the swap and Archon will compare the venue adapters for that chain.</p>
           </div>
           <fieldset className="space-y-5 p-5" disabled={submitting}>
             <legend className="sr-only">Swap details</legend>
+            <AssetField label="Chain" name="chain" defaultValue="demo" options={["demo", "base"]} />
             <div className="grid gap-4 sm:grid-cols-2">
               <AssetField label="Sell asset" name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} />
               <AssetField label="Buy asset" name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL"]} />
@@ -160,7 +263,7 @@ export function IntentsWorkspace() {
             >
               {organizationId === undefined ? "Preparing…" : submitting ? "Evaluating…" : "Submit intent"}
             </button>
-            <p className="border-t border-white/[.06] pt-4 text-[11px] leading-5 text-white/30">Uses deterministic demo adapters only. No wallet signature is requested and no transaction is submitted.</p>
+            <p className="border-t border-white/[.06] pt-4 text-[11px] leading-5 text-white/30">Quotes carry a TTL and a simulation gate runs before any plan. No wallet signature is requested and no transaction is submitted.</p>
           </fieldset>
         </form>
 
@@ -168,8 +271,8 @@ export function IntentsWorkspace() {
           <div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Recent intents</h2></div>
           {organizationId === undefined ? <StateMessage>Preparing your workspace…</StateMessage> : organizationId === null ? <StateMessage>No organization selected. Create or select an organization to submit intents.</StateMessage> : items === null ? <StateMessage>Loading intents…</StateMessage> : items.length === 0 ? <StateMessage>No intents yet. Submit the first deterministic route.</StateMessage> : (
             <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Intent</th><th>Pair</th><th>Amount</th><th>Decision</th><th>Received</th></tr></thead><tbody>
-              {items.map((item) => <tr key={item.intent.id} onClick={() => setSelected(item)} className="cursor-pointer">
-                <td><button type="button" className="font-mono text-xs text-white/80" onClick={() => setSelected(item)}>{item.intent.id.slice(0, 12)}</button></td>
+              {items.map((item) => <tr key={item.intent.id} onClick={() => pick(item)} className="cursor-pointer">
+                <td><button type="button" className="font-mono text-xs text-white/80" onClick={() => pick(item)}>{item.intent.id.slice(0, 12)}</button></td>
                 <td>{item.intent.sellAsset} → {item.intent.buyAsset}</td><td>{item.intent.amount}</td><td><Outcome value={item.decision?.outcome ?? item.intent.status} /></td><td>{new Date(item.intent.createdAt).toLocaleTimeString()}</td>
               </tr>)}
             </tbody></table></div>
@@ -177,7 +280,20 @@ export function IntentsWorkspace() {
         </section>
       </div>
 
-      {selected && <IntentInspector result={selected} />}
+      {selected && (
+        <IntentInspector
+          key={selected.intent.id}
+          result={selected}
+          nowTick={nowTick}
+          requoting={requoting}
+          simulating={simulating}
+          simulation={simulation}
+          simError={simError}
+          timeline={timeline}
+          onRequote={requote}
+          onSimulate={simulate}
+        />
+      )}
 
       {showNoOrgDialog && (
         <div
@@ -221,12 +337,55 @@ export function IntentsWorkspace() {
   );
 }
 
-function IntentInspector({ result }: { result: IntentResult }) {
+function IntentInspector({ result, nowTick, requoting, simulating, simulation, simError, timeline, onRequote, onSimulate }: {
+  result: IntentResult;
+  nowTick: number;
+  requoting: boolean;
+  simulating: boolean;
+  simulation: Simulation | null;
+  simError: string;
+  timeline: LifecycleEvent[] | null;
+  onRequote: () => void;
+  onSimulate: () => void;
+}) {
+  void nowTick;
+  const activeSim = simulation ?? (result.plan ? {
+    venue: result.plan.venue,
+    simulation: {
+      ok: result.plan.simOk,
+      expectedOut: result.plan.expectedOut,
+      error: result.plan.simError,
+      gas: result.plan.gas,
+      quotedOut: result.quotes.find((q) => q.venue === result.plan?.venue)?.amountOut ?? "—",
+    },
+  } : null);
   return <section className="mt-5 grid gap-5 lg:grid-cols-3" aria-label="Intent evidence">
     <div className="dashboard-panel p-5"><p className="dashboard-eyebrow">Decision</p><div className="mt-4 flex items-center justify-between"><h2 className="text-xl font-medium">{result.decision?.outcome ?? "Pending"}</h2><span className="font-mono text-xs text-[#9cafff]">{result.decision?.policyVersion ?? "—"}</span></div><p className="mt-3 text-sm text-white/48">{result.decision?.selectedVenue ? `${result.decision.selectedVenue} is the best policy-valid route.` : "No valid direct route remains; manual review is required."}</p><ul className="mt-5 space-y-2 text-xs text-white/38">{result.decision?.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul></div>
-    <div className="dashboard-panel overflow-hidden lg:col-span-2"><div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Normalized quotes</h2></div>{result.quotes.length === 0 ? <StateMessage>No valid venue responded.</StateMessage> : <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Venue</th><th>Output</th><th>Impact</th><th>Fee</th><th>Expires</th></tr></thead><tbody>{result.quotes.map((quote) => <tr key={quote.id}><td className="font-medium text-white/75">{quote.venue}</td><td>{quote.amountOut}</td><td>{quote.priceImpactBps} bps</td><td>{quote.feeBps} bps</td><td>{new Date(quote.expiresAt).toLocaleTimeString()}</td></tr>)}</tbody></table></div>}</div>
-    <div className="dashboard-panel p-5 lg:col-span-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="dashboard-eyebrow">Context snapshot</p><h2 className="mt-2 text-sm font-medium">Deterministic evidence</h2></div><code className="max-w-full truncate text-[10px] text-white/30">sha256:{result.context?.hash ?? "—"}</code></div><pre className="mt-4 overflow-auto rounded-lg border border-white/[.06] bg-black/20 p-4 text-[11px] leading-5 text-white/45">{JSON.stringify(result.context?.facts ?? {}, null, 2)}</pre></div>
+    <div className="dashboard-panel overflow-hidden lg:col-span-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Normalized quotes</h2><div className="flex gap-2"><button type="button" onClick={onRequote} disabled={requoting} className="dashboard-button-secondary disabled:opacity-50">{requoting ? "Requoting…" : "Requote"}</button><button type="button" onClick={onSimulate} disabled={simulating || !result.decision?.selectedVenue} className="dashboard-button-secondary disabled:opacity-50">{simulating ? "Simulating…" : "Simulate plan"}</button></div></div>
+      {result.quotes.length === 0 ? <StateMessage>No valid venue responded.</StateMessage> : <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Venue</th><th>Output</th><th>Impact</th><th>Fee</th><th>Freshness</th><th>Expires</th></tr></thead><tbody>{result.quotes.map((quote) => <tr key={quote.id}><td className="font-medium text-white/75">{quote.venue}</td><td>{quote.amountOut}</td><td>{quote.priceImpactBps} bps</td><td>{quote.feeBps} bps</td><td><FreshnessBadge expiresAt={quote.expiresAt} /></td><td>{new Date(quote.expiresAt).toLocaleTimeString()}</td></tr>)}</tbody></table></div>}
+      {simError && <p role="alert" className="m-4 rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{simError}</p>}
+      {activeSim && (
+        <div className={`m-4 rounded-lg border p-4 text-xs leading-5 ${activeSim.simulation.ok ? "border-emerald-400/20 bg-emerald-400/[.06] text-emerald-100/80" : "border-red-400/20 bg-red-400/[.06] text-red-100/80"}`} role="status">
+          <p className="font-medium">{activeSim.simulation.ok ? `Simulation passed — plan ready for ${activeSim.venue} (no signing in Phase 3).` : `Simulation failed — plan blocked: ${activeSim.simulation.error ?? "unknown reason"}`}</p>
+          <p className="mt-1 font-mono text-[11px] opacity-80">quoted {activeSim.simulation.quotedOut} → simulated {activeSim.simulation.expectedOut ?? "—"} · gas {activeSim.simulation.gas ?? "—"}</p>
+        </div>
+      )}
+    </div>
+    <div className="dashboard-panel p-5 lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="dashboard-eyebrow">Context snapshot</p><h2 className="mt-2 text-sm font-medium">Deterministic evidence</h2></div><code className="max-w-full truncate text-[10px] text-white/30">sha256:{result.context?.hash ?? "—"}</code></div><pre className="mt-4 overflow-auto rounded-lg border border-white/[.06] bg-black/20 p-4 text-[11px] leading-5 text-white/45">{JSON.stringify(result.context?.facts ?? {}, null, 2)}</pre></div>
+    <div className="dashboard-panel overflow-hidden"><div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Event timeline</h2></div>{timeline === null ? <StateMessage>Loading timeline…</StateMessage> : timeline.length === 0 ? <StateMessage>No events yet.</StateMessage> : <ul className="space-y-1 p-4">{timeline.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-xs text-white/55"><span className="font-mono text-white/75">{event.type}</span><span>{new Date(event.createdAt).toLocaleTimeString()}</span></li>)}</ul>}</div>
   </section>;
+}
+
+function quoteMsLeft(expiresAt: string): number {
+  return new Date(expiresAt).getTime() - Date.now();
+}
+
+function FreshnessBadge({ expiresAt }: { expiresAt: string }) {
+  const msLeft = quoteMsLeft(expiresAt);
+  if (msLeft <= 0) return <span className="inline-flex items-center gap-2 text-xs text-white/55"><i className="size-1.5 rounded-full bg-rose-400" />Stale</span>;
+  if (msLeft < 10_000) return <span className="inline-flex items-center gap-2 text-xs text-white/55"><i className="size-1.5 rounded-full bg-amber-300" />{Math.ceil(msLeft / 1000)}s left</span>;
+  return <span className="inline-flex items-center gap-2 text-xs text-white/55"><i className="size-1.5 rounded-full bg-emerald-400" />Fresh · {Math.ceil(msLeft / 1000)}s</span>;
 }
 
 function Field({ label, hint, name, defaultValue, inputMode, suffix }: { label: string; hint: string; name: string; defaultValue: string; inputMode?: "decimal" | "numeric"; suffix?: string }) {

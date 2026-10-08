@@ -9,6 +9,8 @@ export default () => ({
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? 'http://localhost:4000',
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
   TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY ?? '',
+  QUOTE_TTL_MS: Number(process.env.QUOTE_TTL_MS ?? 30_000),
+  BASE_RPC_URL: process.env.BASE_RPC_URL ?? '',
   JEV_MODEL: process.env.JEV_MODEL ?? 'jev-latest',
   JEV_TIMEOUT_MS: Number(process.env.JEV_TIMEOUT_MS ?? 2500),
   JEV_MAX_CALLS_PER_MINUTE: Number(process.env.JEV_MAX_CALLS_PER_MINUTE ?? 600),

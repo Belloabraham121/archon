@@ -29,6 +29,21 @@ test('submits an intent and shows quotes, context, and deterministic decision', 
   await expect(page.getByText(/sha256:/)).toBeVisible();
 });
 
+test('requotes and simulates the selected intent', async ({ page }) => {
+  await login(page);
+  await page.goto('/dashboard/intents');
+  await page.getByLabel('Amount').fill('1000');
+  await page.getByRole('button', { name: /submit intent/i }).click();
+  await expect(page.getByRole('heading', { name: 'DIRECT' })).toBeVisible();
+
+  await page.getByRole('button', { name: /^requote$/i }).click();
+  await expect(page.getByRole('cell', { name: 'demo-amm' }).last()).toBeVisible();
+
+  await page.getByRole('button', { name: /simulate plan/i }).click();
+  await expect(page.getByText(/simulation (passed|failed)/i)).toBeVisible();
+  await expect(page.getByText('intent.received').first()).toBeVisible();
+});
+
 test('surfaces backend validation for an invalid amount', async ({ page }) => {
   await login(page);
   await page.goto('/dashboard/intents');

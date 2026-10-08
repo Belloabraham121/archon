@@ -50,4 +50,20 @@ export class IntentsController {
     if (!organizationId) throw new BadRequestException('x-organization-id is required');
     return this.intents.context(organizationId, 'test', id);
   }
+
+  @Post(':id/requote')
+  @ApiOperation({ summary: 'Re-collect quotes and re-run deterministic evaluation' })
+  @ApiOkResponse({ description: 'The intent with a fresh quote set, context hash, and decision.' })
+  requote(@Param('id') id: string, @TenantId() organizationId?: string) {
+    if (!organizationId) throw new BadRequestException('x-organization-id is required');
+    return this.intents.requote(organizationId, 'test', id);
+  }
+
+  @Post(':id/simulate')
+  @ApiOperation({ summary: 'Build the execution plan and run the simulation gate (no signing)' })
+  @ApiOkResponse({ description: 'The plan plus simulation result. A failed simulation blocks the plan.' })
+  simulate(@Param('id') id: string, @TenantId() organizationId?: string) {
+    if (!organizationId) throw new BadRequestException('x-organization-id is required');
+    return this.intents.simulate(organizationId, 'test', id);
+  }
 }

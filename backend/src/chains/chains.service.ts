@@ -3,15 +3,19 @@ import { ChainAdapter } from './adapters/chain-adapter.interface';
 import { demoAdapters } from './adapters/mock-venue.adapter';
 
 export const DEMO_ADAPTERS = 'DEMO_ADAPTERS';
+export const REAL_ADAPTERS = 'REAL_ADAPTERS';
 
 @Injectable()
 export class ChainsService implements OnModuleInit {
   private readonly adapters = new Map<string, ChainAdapter[]>();
 
-  constructor(@Inject(DEMO_ADAPTERS) private readonly demo: ChainAdapter[]) {}
+  constructor(
+    @Inject(DEMO_ADAPTERS) private readonly demo: ChainAdapter[],
+    @Inject(REAL_ADAPTERS) private readonly real: ChainAdapter[],
+  ) {}
 
   onModuleInit() {
-    for (const adapter of this.demo) this.register(adapter);
+    for (const adapter of [...this.demo, ...this.real]) this.register(adapter);
   }
 
   register(adapter: ChainAdapter) {
