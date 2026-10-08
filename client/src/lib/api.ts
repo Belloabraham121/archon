@@ -9,6 +9,7 @@ export function setActiveOrgId(id: string | null) {
   if (typeof window === "undefined") return;
   if (id) window.localStorage.setItem("archon:orgId", id);
   else window.localStorage.removeItem("archon:orgId");
+  window.dispatchEvent(new CustomEvent("archon:organization-changed", { detail: id }));
 }
 
 export type Organization = {

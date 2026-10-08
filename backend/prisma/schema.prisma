@@ -138,7 +138,7 @@ model ExecutionIntent {
   amount         String
   constraints    Json?
   status         String       @default("received")
-  idempotencyKey String       @unique
+  idempotencyKey String
   quoteSet       QuoteSet?
   context        ContextSnapshot?
   decision       Decision?
@@ -146,6 +146,7 @@ model ExecutionIntent {
   updatedAt      DateTime     @updatedAt
 
   @@index([organizationId, environment, createdAt])
+  @@unique([organizationId, environment, idempotencyKey])
 }
 
 // Minimal policy bookkeeping for Phase 2. The full studio (builder,
