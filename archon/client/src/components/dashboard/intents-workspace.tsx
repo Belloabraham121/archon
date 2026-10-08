@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { io } from "socket.io-client";
 
 import { activeOrgId, api } from "@/lib/api";
@@ -43,6 +44,7 @@ export function IntentsWorkspace() {
   const [selected, setSelected] = useState<IntentResult | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showNoOrgDialog, setShowNoOrgDialog] = useState(false);
   // undefined = org switcher has not resolved yet; null = no org exists.
   const [organizationId, setOrganizationId] = useState<string | null | undefined>(undefined);
 
@@ -86,6 +88,10 @@ export function IntentsWorkspace() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!activeOrgId()) {
+      setShowNoOrgDialog(true);
+      return;
+    }
     const form = new FormData(event.currentTarget);
     setSubmitting(true);
     setError("");
@@ -129,7 +135,7 @@ export function IntentsWorkspace() {
             <h2 className="mt-2 text-lg font-medium">Compare demo venues</h2>
             <p className="mt-2 text-xs leading-5 text-white/35">Describe the swap and Archon will compare both deterministic venue adapters.</p>
           </div>
-          <fieldset className="space-y-5 p-5" disabled={submitting || !organizationId}>
+          <fieldset className="space-y-5 p-5" disabled={submitting}>
             <legend className="sr-only">Swap details</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <AssetField label="Sell asset" name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} />
@@ -138,8 +144,21 @@ export function IntentsWorkspace() {
             <Field label="Amount" hint="Enter the amount in sell-asset units." name="amount" defaultValue="1000" inputMode="decimal" />
             <Field label="Maximum slippage" hint="Basis points (50 bps = 0.50%)." name="maximumSlippageBps" defaultValue="50" inputMode="numeric" suffix="bps" />
           {error && <p role="alert" className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
-            <button type="submit" className="dashboard-button-primary w-full disabled:cursor-not-allowed disabled:opacity-50">
-              {submitting ? "Evaluating…" : "Submit intent"}
+            {organizationId === null && (
+              <button
+                type="button"
+                onClick={() => setShowNoOrgDialog(true)}
+                className="w-full rounded-md border border-amber-300/15 bg-amber-300/[.07] p-3 text-left text-xs leading-5 text-amber-100/70 transition hover:border-amber-300/30 hover:text-amber-100"
+              >
+                No organization selected. Click here to create one before submitting this intent.
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={organizationId === undefined || submitting}
+              className="dashboard-button-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {organizationId === undefined ? "Preparing…" : submitting ? "Evaluating…" : "Submit intent"}
             </button>
             <p className="border-t border-white/[.06] pt-4 text-[11px] leading-5 text-white/30">Uses deterministic demo adapters only. No wallet signature is requested and no transaction is submitted.</p>
           </fieldset>
@@ -159,6 +178,45 @@ export function IntentsWorkspace() {
       </div>
 
       {selected && <IntentInspector result={selected} />}
+
+      {showNoOrgDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="no-org-title"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setShowNoOrgDialog(false)}
+        >
+          <div
+            className="dashboard-panel w-full max-w-md p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="dashboard-eyebrow">Organization required</p>
+            <h2 id="no-org-title" className="mt-2 text-lg font-medium">
+              Create an organization first
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-white/55">
+              Intents are scoped to an organization for isolation, audit, and policy.
+              Create one to unlock submitting intents — it takes less than a minute.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <Link
+                href="/dashboard/organizations"
+                className="dashboard-button-primary flex-1 text-center"
+              >
+                Create organization →
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowNoOrgDialog(false)}
+                className="dashboard-button-secondary flex-1"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
