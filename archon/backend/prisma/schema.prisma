@@ -139,6 +139,105 @@ model ExecutionIntent {
   constraints    Json?
   status         String       @default("received")
   idempotencyKey String       @unique
+  quoteSet       QuoteSet?
+  context        ContextSnapshot?
+  decision       Decision?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, environment, createdAt])
+}
+
+// Minimal policy bookkeeping for Phase 2. The full studio (builder,
+// simulation, approvals) lands in Phase 4 — but architecture requires every
+// decision to reference a policy version, so a seeded default exists now.
+model Policy {
+  id             String          @id @default(cuid())
+  organizationId String
+  environment    String          @default("test")
+  name           String
+  versions       PolicyVersion[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([organizationId, environment, name])
+}
+
+model PolicyVersion {
+  id        String     @id @default(cuid())
+  policyId  String
+  policy    Policy     @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  version   Int
+  status    String     @default("published")
+  rules     Json
+  createdAt DateTime   @default(now())
+  decisions Decision[]
+
+  @@unique([policyId, version])
+}
+
+model QuoteSet {
+  id        String          @id @default(cuid())
+  intentId  String          @unique
+  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  quotes    Quote[]
+  createdAt DateTime        @default(now())
+}
+
+model Quote {
+  id             String   @id @default(cuid())
+  quoteSetId     String
+  quoteSet       QuoteSet @relation(fields: [quoteSetId], references: [id], onDelete: Cascade)
+  venue          String
+  chain          String
+  sellAsset      String
+  buyAsset       String
+  amountIn       String
+  amountOut      String
+  priceImpactBps Int
+  feeBps         Int
+  expiresAt      DateTime
+}
+
+model ContextSnapshot {
+  id        String          @id @default(cuid())
+  intentId  String          @unique
+  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  facts     Json
+  hash      String
+  createdAt DateTime        @default(now())
+}
+
+model Decision {
+  id                String         @id @default(cuid())
+  intentId          String         @unique
+  intent            ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  organizationId    String
+  environment       String         @default("test")
+  outcome           String
+  strategy          String
+  confidence        Float?
+  reasons           Json
+  policyVersionId   String?
+  policyVersion     PolicyVersion? @relation(fields: [policyVersionId], references: [id])
+  contextSnapshotId String?
+  quoteSetId        String?
+  createdAt         DateTime        @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}
+
+// Append-only lifecycle log. Backs GET /v1/events and the inspector
+// timeline; the NATS outbox publisher attaches in Phase 3.
+model Event {
+  id             String   @id @default(cuid())
+  type           String
+  organizationId String
+  environment    String   @default("test")
+  intentId       String?
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([intentId, createdAt])
+  @@index([organizationId, environment, createdAt])
 }
