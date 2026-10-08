@@ -43,7 +43,8 @@ export function IntentsWorkspace() {
   const [selected, setSelected] = useState<IntentResult | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  // undefined = org switcher has not resolved yet; null = no org exists.
+  const [organizationId, setOrganizationId] = useState<string | null | undefined>(undefined);
 
   const load = useCallback(async () => {
     if (!activeOrgId()) return;
@@ -122,22 +123,31 @@ export function IntentsWorkspace() {
       </header>
 
       <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(300px,.65fr)_minmax(0,1.35fr)]">
-        <form onSubmit={submit} className="dashboard-panel space-y-4 p-5" aria-label="Create swap intent">
-          <div><p className="dashboard-eyebrow">New intent</p><h2 className="mt-2 text-lg font-medium">Compare demo venues</h2></div>
-          <Field label="Sell asset" name="sellAsset" defaultValue="USDC" />
-          <Field label="Buy asset" name="buyAsset" defaultValue="ETH" />
-          <Field label="Amount" name="amount" defaultValue="1000" inputMode="decimal" />
-          <Field label="Maximum slippage (bps)" name="maximumSlippageBps" defaultValue="50" inputMode="numeric" />
+        <form onSubmit={submit} className="dashboard-panel overflow-hidden" aria-label="Create swap intent">
+          <div className="border-b border-white/[.07] px-5 py-5">
+            <p className="dashboard-eyebrow">New intent</p>
+            <h2 className="mt-2 text-lg font-medium">Compare demo venues</h2>
+            <p className="mt-2 text-xs leading-5 text-white/35">Describe the swap and Archon will compare both deterministic venue adapters.</p>
+          </div>
+          <fieldset className="space-y-5 p-5" disabled={submitting || !organizationId}>
+            <legend className="sr-only">Swap details</legend>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <AssetField label="Sell asset" name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} />
+              <AssetField label="Buy asset" name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL"]} />
+            </div>
+            <Field label="Amount" hint="Enter the amount in sell-asset units." name="amount" defaultValue="1000" inputMode="decimal" />
+            <Field label="Maximum slippage" hint="Basis points (50 bps = 0.50%)." name="maximumSlippageBps" defaultValue="50" inputMode="numeric" suffix="bps" />
           {error && <p role="alert" className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
-          <button disabled={submitting || !organizationId} className="dashboard-button-primary w-full disabled:cursor-not-allowed disabled:opacity-50">
-            {submitting ? "Evaluating…" : "Submit intent"}
-          </button>
-          <p className="text-[11px] leading-5 text-white/30">Phase 2 uses deterministic demo adapters. No wallet signs and no transaction is submitted.</p>
+            <button type="submit" className="dashboard-button-primary w-full disabled:cursor-not-allowed disabled:opacity-50">
+              {submitting ? "Evaluating…" : "Submit intent"}
+            </button>
+            <p className="border-t border-white/[.06] pt-4 text-[11px] leading-5 text-white/30">Uses deterministic demo adapters only. No wallet signature is requested and no transaction is submitted.</p>
+          </fieldset>
         </form>
 
         <section className="dashboard-panel min-w-0 overflow-hidden">
           <div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Recent intents</h2></div>
-          {items === null ? <StateMessage>Loading intents…</StateMessage> : items.length === 0 ? <StateMessage>No intents yet. Submit the first deterministic route.</StateMessage> : (
+          {organizationId === undefined ? <StateMessage>Preparing your workspace…</StateMessage> : organizationId === null ? <StateMessage>No organization selected. Create or select an organization to submit intents.</StateMessage> : items === null ? <StateMessage>Loading intents…</StateMessage> : items.length === 0 ? <StateMessage>No intents yet. Submit the first deterministic route.</StateMessage> : (
             <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Intent</th><th>Pair</th><th>Amount</th><th>Decision</th><th>Received</th></tr></thead><tbody>
               {items.map((item) => <tr key={item.intent.id} onClick={() => setSelected(item)} className="cursor-pointer">
                 <td><button type="button" className="font-mono text-xs text-white/80" onClick={() => setSelected(item)}>{item.intent.id.slice(0, 12)}</button></td>
@@ -161,8 +171,12 @@ function IntentInspector({ result }: { result: IntentResult }) {
   </section>;
 }
 
-function Field({ label, name, defaultValue, inputMode }: { label: string; name: string; defaultValue: string; inputMode?: "decimal" | "numeric" }) {
-  return <label className="block text-xs text-white/48"><span>{label}</span><input required name={name} defaultValue={defaultValue} inputMode={inputMode} className="mt-2 w-full rounded-md border border-white/[.08] bg-white/[.03] px-3 py-2.5 text-sm text-white outline-none focus:border-[#6e86ff]" /></label>;
+function Field({ label, hint, name, defaultValue, inputMode, suffix }: { label: string; hint: string; name: string; defaultValue: string; inputMode?: "decimal" | "numeric"; suffix?: string }) {
+  return <label className="block"><span className="text-xs font-medium text-white/68">{label}</span><span className="mt-1 block text-[11px] text-white/28">{hint}</span><span className="relative mt-2 block"><input required name={name} defaultValue={defaultValue} inputMode={inputMode} className={`w-full rounded-lg border border-white/[.09] bg-white/[.035] px-3 py-3 text-sm text-white outline-none transition-[border-color,background-color] focus:border-[#6e86ff] focus:bg-white/[.05] ${suffix ? "pr-12" : ""}`} />{suffix && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center font-mono text-[10px] text-white/30">{suffix}</span>}</span></label>;
+}
+
+function AssetField({ label, name, defaultValue, options }: { label: string; name: string; defaultValue: string; options: string[] }) {
+  return <label className="block"><span className="text-xs font-medium text-white/68">{label}</span><select required name={name} defaultValue={defaultValue} className="mt-2 w-full rounded-lg border border-white/[.09] bg-[#111313] px-3 py-3 text-sm text-white outline-none focus:border-[#6e86ff]">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
 }
 
 function StateMessage({ children }: { children: React.ReactNode }) { return <p className="p-8 text-center text-sm text-white/35" aria-live="polite">{children}</p>; }
