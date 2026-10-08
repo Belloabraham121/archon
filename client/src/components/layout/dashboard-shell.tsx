@@ -21,7 +21,7 @@ const navigation = [
     ["Audit log", "/dashboard/audit", "list"],
   ]},
   { group: "Organization", items: [
-    ["Team", "/dashboard/team", "users"], ["Settings", "/dashboard/settings", "settings"],
+    ["Organizations", "/dashboard/organizations", "users"], ["Team", "/dashboard/team", "users"], ["Settings", "/dashboard/settings", "settings"],
   ]},
 ] as const;
 

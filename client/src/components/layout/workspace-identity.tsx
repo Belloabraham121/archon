@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -49,9 +50,12 @@ export function OrgSwitcher() {
 
   if (orgs.length === 0) {
     return (
-      <p className="mt-2 rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-xs text-white/35">
-        No organization yet — create one to get started.
-      </p>
+      <Link
+        href="/dashboard/organizations"
+        className="mt-2 block rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-xs leading-5 text-white/35 transition hover:border-white/25 hover:text-white/70"
+      >
+        No organization yet — click here to create one to get started.
+      </Link>
     );
   }
 
