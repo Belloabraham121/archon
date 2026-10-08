@@ -4,9 +4,10 @@ import { IntentsService } from './intents.service';
 import { GatewayModule } from '../gateway/gateway.module';
 import { ChainsModule } from '../chains/chains.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports: [GatewayModule, ChainsModule, PrismaModule],
+  imports: [GatewayModule, ChainsModule, PrismaModule, EventsModule],
   controllers: [IntentsController],
   providers: [IntentsService],
   exports: [IntentsService],

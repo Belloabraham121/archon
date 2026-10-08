@@ -26,3 +26,19 @@ test('fails closed to review when the amount exceeds its cap', () => {
   assert.equal(result.outcome, 'REVIEW');
   assert.equal(result.selected, null);
 });
+
+test('excludes an expired quote even when it has the best output', () => {
+  const past = new Date('2000-01-01T00:00:00.000Z').toISOString();
+  const stale: Quote = { ...quotes[1], expiresAt: past };
+  const result = evaluateDeterministicRoute('1000', [quotes[0], stale], { maximum_slippage_bps: 50 });
+  assert.equal(result.selected?.venue, 'demo-amm');
+  assert.match(result.reasons.join(' '), /expired/);
+});
+
+test('fails closed to review when every quote is stale', () => {
+  const past = new Date('2000-01-01T00:00:00.000Z').toISOString();
+  const stale = quotes.map((quote) => ({ ...quote, expiresAt: past }));
+  const result = evaluateDeterministicRoute('1000', stale, { maximum_slippage_bps: 50 });
+  assert.equal(result.outcome, 'REVIEW');
+  assert.equal(result.selected, null);
+});
