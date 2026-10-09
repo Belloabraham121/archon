@@ -13,15 +13,15 @@ datasource db {
 
 // ---- Better Auth core ----
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  id            String       @id @default(cuid())
+  email         String       @unique
+  emailVerified Boolean      @default(false)
   name          String?
   firstName     String?
   lastName      String?
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
   sessions      Session[]
   accounts      Account[]
   members       Member[]
@@ -29,22 +29,22 @@ model User {
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expiresAt DateTime
-  ipAddress String?
-  userAgent String?
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token                String   @unique
+  expiresAt            DateTime
+  ipAddress            String?
+  userAgent            String?
   activeOrganizationId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 model Account {
-  id                    String  @id @default(cuid())
+  id                    String    @id @default(cuid())
   userId                String
-  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId             String
   providerId            String
   accessToken           String?
@@ -54,8 +54,8 @@ model Account {
   scope                 String?
   idToken               String?
   password              String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 model Verification {
@@ -71,12 +71,12 @@ model Verification {
 
 // ---- Better Auth organization plugin ----
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String?  @unique
-  logo      String?
-  metadata  String?
-  createdAt DateTime @default(now())
+  id          String            @id @default(cuid())
+  name        String
+  slug        String?           @unique
+  logo        String?
+  metadata    String?
+  createdAt   DateTime          @default(now())
   members     Member[]
   invitations Invitation[]
   intents     ExecutionIntent[]
@@ -127,27 +127,27 @@ model ApiKey {
 
 // ---- Archon domain (MVP slice) ----
 model ExecutionIntent {
-  id             String       @id @default(cuid())
+  id             String           @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  environment    String       @default("test")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  environment    String           @default("test")
   type           String
   chain          String
   sellAsset      String
   buyAsset       String
   amount         String
   constraints    Json?
-  status         String       @default("received")
+  status         String           @default("received")
   idempotencyKey String
   quoteSet       QuoteSet?
   context        ContextSnapshot?
   decision       Decision?
   plan           ExecutionPlan?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  @@index([organizationId, environment, createdAt])
   @@unique([organizationId, environment, idempotencyKey])
+  @@index([organizationId, environment, createdAt])
 }
 
 // Minimal policy bookkeeping for Phase 2. The full studio (builder,
@@ -173,6 +173,7 @@ model PolicyVersion {
   status    String     @default("published")
   rules     Json
   createdAt DateTime   @default(now())
+  publishedAt DateTime?
   decisions Decision[]
 
   @@unique([policyId, version])
@@ -211,20 +212,33 @@ model ContextSnapshot {
 }
 
 model Decision {
-  id                String         @id @default(cuid())
-  intentId          String         @unique
-  intent            ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
-  organizationId    String
-  environment       String         @default("test")
-  outcome           String
-  strategy          String
-  confidence        Float?
-  reasons           Json
-  policyVersionId   String?
-  policyVersion     PolicyVersion? @relation(fields: [policyVersionId], references: [id])
-  contextSnapshotId String?
-  quoteSetId        String?
-  createdAt         DateTime        @default(now())
+  id                     String          @id @default(cuid())
+  intentId               String          @unique
+  intent                 ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  organizationId         String
+  environment            String          @default("test")
+  outcome                String
+  strategy               String
+  confidence             Float?
+  reasons                Json
+  policyVersionId        String?
+  policyVersion          PolicyVersion?  @relation(fields: [policyVersionId], references: [id])
+  contextSnapshotId      String?
+  quoteSetId             String?
+  // Phase 5: Tier-3 judgment evidence. Null when deterministic policy
+  // decided without escalation.
+  judgmentStrategy       String?
+  judgmentConfidence     Float?
+  judgmentProvider       String?
+  judgmentModel          String?
+  judgmentLatencyMs      Int?
+  judgmentInputTokens    Int?
+  judgmentOutputTokens   Int?
+  judgmentCostUsd        Float?
+  judgmentFallback       Boolean         @default(false)
+  judgmentFallbackReason String?
+  judgmentShadow         Boolean         @default(false)
+  createdAt              DateTime        @default(now())
 
   @@index([organizationId, environment, createdAt])
 }
@@ -232,18 +246,18 @@ model Decision {
 // Phase 3: plan build + simulation gate. No signing or submission yet —
 // submitAuthorizedTransaction stays unimplemented until Phase 6.
 model ExecutionPlan {
-  id        String          @id @default(cuid())
-  intentId  String          @unique
-  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
-  venue     String
-  chain     String
-  plan      Json
-  simOk     Boolean
+  id          String          @id @default(cuid())
+  intentId    String          @unique
+  intent      ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  venue       String
+  chain       String
+  plan        Json
+  simOk       Boolean
   expectedOut String?
-  simError  String?
-  gas       String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  simError    String?
+  gas         String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 // Append-only lifecycle log. Backs GET /v1/events and the inspector
@@ -259,6 +273,20 @@ model Event {
 
   @@index([intentId, createdAt])
   @@index([organizationId, environment, createdAt])
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String
+  method         String
+  path           String
+  key            String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, environment, method, path, key])
+  @@index([createdAt])
 }
 
 // Phase 3: transactional outbox. State changes and the event destined for

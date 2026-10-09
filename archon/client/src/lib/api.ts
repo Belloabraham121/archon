@@ -12,6 +12,22 @@ export function setActiveOrgId(id: string | null) {
   window.dispatchEvent(new CustomEvent("archon:organization-changed", { detail: id }));
 }
 
+export type ArchonEnvironment = "test" | "live";
+
+export function activeEnvironment(): ArchonEnvironment {
+  if (typeof window === "undefined") return "test";
+  return window.localStorage.getItem("archon:environment") === "live" ? "live" : "test";
+}
+
+export function setActiveEnvironment(environment: ArchonEnvironment) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("archon:environment", environment);
+  window.dispatchEvent(new CustomEvent("archon:environment-changed", { detail: environment }));
+  // Existing tenant-scoped workspaces already refresh on this event. Reuse it
+  // so switching environments cannot leave test data visible under the live badge.
+  window.dispatchEvent(new CustomEvent("archon:organization-changed", { detail: activeOrgId() }));
+}
+
 export type Organization = {
   id: string;
   name: string;
@@ -21,12 +37,16 @@ export type Organization = {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const orgId = activeOrgId();
+  const method = (init?.method ?? "GET").toUpperCase();
+  const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
   const res = await fetch(`${API_URL}/v1${path}`, {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(orgId ? { "x-organization-id": orgId } : {}),
+      "x-environment": activeEnvironment(),
+      ...(mutating ? { "Idempotency-Key": crypto.randomUUID() } : {}),
       ...(init?.headers ?? {}),
     },
   });

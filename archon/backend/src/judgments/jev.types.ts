@@ -22,6 +22,9 @@ export interface JevJudgment {
   provider: 'typesafe-jev';
   model: string;
   latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCostUsd?: number;
   fallback?: boolean;
   fallbackReason?: string;
 }

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { OrgSwitcher, UserFooter } from "@/components/layout/workspace-identity";
+import { activeEnvironment, setActiveEnvironment, type ArchonEnvironment } from "@/lib/api";
 
 const navigation = [
   { group: "Workspace", items: [
@@ -25,8 +26,18 @@ const navigation = [
   ]},
 ] as const;
 
+function subscribeToEnvironment(onChange: () => void) {
+  window.addEventListener("archon:environment-changed", onChange);
+  return () => window.removeEventListener("archon:environment-changed", onChange);
+}
+
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const environment = useSyncExternalStore(
+    subscribeToEnvironment,
+    activeEnvironment,
+    (): ArchonEnvironment => "test",
+  );
   return (
     <div className="min-h-screen bg-[#070808] text-[#fffdf8] md:grid md:grid-cols-[17.5rem_1fr]">
       <aside className="dashboard-scrollbar hidden h-screen overflow-y-auto border-r border-white/[.08] bg-[#0a0b0b] p-4 md:sticky md:top-0 md:flex md:max-h-screen md:self-start md:flex-col">
@@ -47,8 +58,20 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="mt-auto pt-8">
-          <p className="px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/30">Environments</p>
-          <div className="mt-3 space-y-2 px-2 text-xs text-white/48"><p><i className="mr-2 inline-block size-1.5 rounded-full bg-emerald-400" />Production</p><p><i className="mr-2 inline-block size-1.5 rounded-full bg-amber-300" />Staging</p><p><i className="mr-2 inline-block size-1.5 rounded-full bg-white/30" />Sandbox</p></div>
+          <label className="px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/30" htmlFor="environment">Environment</label>
+          <select
+            id="environment"
+            aria-label="Environment"
+            value={environment}
+            onChange={(event) => {
+              const next = event.target.value as ArchonEnvironment;
+              setActiveEnvironment(next);
+            }}
+            className="mt-2 w-full rounded-lg border border-white/10 bg-white/[.04] px-3 py-2 text-xs text-white outline-none focus:border-[#6e86ff]"
+          >
+            <option value="test" className="bg-[#0a0b0b]">Test</option>
+            <option value="live" className="bg-[#0a0b0b]">Live</option>
+          </select>
         <UserFooter />
         </div>
       </aside>

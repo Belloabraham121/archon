@@ -9,6 +9,7 @@ export interface Quote {
   amountOut: string;
   priceImpactBps: number;
   feeBps: number;
+  routeDepth?: number;
   expiresAt: string;
 }
 

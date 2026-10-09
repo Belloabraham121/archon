@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { evaluateDeterministicRoute } from '../intents/intents.service';
-import { PolicyRules } from '../policies/rules';
+import { effectiveConstraints, PolicyRules } from '../policies/rules';
 
 export interface ReplayDiff {
   intentId: string;
@@ -99,10 +99,11 @@ export class ReplaysService {
           outcome: intent.decision?.outcome ?? intent.status,
           venue: typeof selectedReason === 'string' ? (selectedReason as string).split(' selected ')[0] : null,
         };
-        const evaluation = evaluateDeterministicRoute(intent.amount, quotes, {
-          ...rules,
-          ...((intent.constraints ?? {}) as PolicyRules),
-        });
+        const evaluation = evaluateDeterministicRoute(
+          intent.amount,
+          quotes,
+          effectiveConstraints(rules, (intent.constraints ?? {}) as PolicyRules),
+        );
         const diffed = diffOutcome(before, evaluation);
         return {
           intentId: intent.id,

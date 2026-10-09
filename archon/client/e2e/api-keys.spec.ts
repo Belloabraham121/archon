@@ -8,7 +8,8 @@ async function login(page: Page) {
   await page.locator('#email').fill(EMAIL);
   await page.locator('#password').fill(PASSWORD);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('**/dashboard', { timeout: 15_000 });
+  await page.waitForURL((url) => url.pathname === '/dashboard', { timeout: 15_000 });
+  await expect(page.locator('#organization')).toHaveValue(/.+/);
 }
 
 test.beforeEach(() => {
@@ -38,6 +39,31 @@ test('API key lifecycle: create, copy-once, revoke', async ({ page }) => {
   // …then only the masked row remains, which can be revoked.
   const row = page.locator('tbody tr', { hasText: keyName });
   await expect(row).toBeVisible();
+  const organizationId = await page.locator('#organization').inputValue();
+  const switched = await page.request.post(`http://localhost:4000/v1/organizations/${organizationId}/switch`, {
+    headers: {
+      'x-organization-id': organizationId,
+      'x-environment': 'test',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+  });
+  expect(switched.ok()).toBeTruthy();
+
+  const crossTenant = await page.request.get('http://localhost:4000/v1/intents', {
+    headers: { 'x-organization-id': 'not-the-callers-organization', 'x-environment': 'test' },
+  });
+  expect(crossTenant.status()).toBe(403);
+
+  const wrongEnvironment = await page.request.get('http://localhost:4000/v1/intents', {
+    headers: { 'x-api-key': value, 'x-organization-id': organizationId, 'x-environment': 'live' },
+  });
+  expect(wrongEnvironment.status()).toBe(403);
+
   await row.getByRole('button', { name: /revoke/i }).click();
   await expect(row.getByText('Revoked')).toBeVisible();
+
+  const rejected = await page.request.get('http://localhost:4000/v1/intents', {
+    headers: { 'x-api-key': value, 'x-organization-id': organizationId, 'x-environment': 'test' },
+  });
+  expect(rejected.status()).toBe(401);
 });

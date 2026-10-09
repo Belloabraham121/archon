@@ -78,9 +78,14 @@ export function OrganizationsManager() {
     }
   }
 
-  function selectOrg(id: string) {
-    setActiveOrgId(id);
-    router.push("/dashboard/intents");
+  async function selectOrg(id: string) {
+    try {
+      await api(`/organizations/${id}/switch`, { method: "POST" });
+      setActiveOrgId(id);
+      router.push("/dashboard/intents");
+    } catch (cause) {
+      setError(notifyError(cause, "Could not switch organization"));
+    }
   }
 
   return (
@@ -147,7 +152,7 @@ export function OrganizationsManager() {
                     <td>
                       <button
                         type="button"
-                        onClick={() => selectOrg(org.id)}
+                        onClick={() => void selectOrg(org.id)}
                         className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/65 transition hover:border-white/20 hover:text-white"
                       >
                         Use this organization →

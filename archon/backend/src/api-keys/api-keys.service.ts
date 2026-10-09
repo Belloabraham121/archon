@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -19,6 +19,11 @@ export class ApiKeysService {
 
   async create(userId: string, input: CreateKeyInput) {
     const environment = input.environment === 'live' ? 'live' : 'test';
+    if (!input.organizationId) throw new ForbiddenException('An active organization is required');
+    const member = await this.prisma.member.findUnique({
+      where: { userId_organizationId: { userId, organizationId: input.organizationId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this organization');
     const secret = randomBytes(24).toString('base64url');
     const raw = `ak_${environment}_${secret}`;
     const record = await this.prisma.apiKey.create({
@@ -37,16 +42,16 @@ export class ApiKeysService {
     return { ...this.present(record), key: raw };
   }
 
-  async list(userId: string) {
+  async list(userId: string, organizationId: string) {
     const rows = await this.prisma.apiKey.findMany({
-      where: { userId },
+      where: { userId, organizationId },
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((r) => this.present(r));
   }
 
-  async revoke(userId: string, id: string) {
-    const row = await this.prisma.apiKey.findFirst({ where: { id, userId } });
+  async revoke(userId: string, organizationId: string, id: string) {
+    const row = await this.prisma.apiKey.findFirst({ where: { id, userId, organizationId } });
     if (!row) return null;
     const updated = await this.prisma.apiKey.update({
       where: { id },

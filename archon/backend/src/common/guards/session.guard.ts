@@ -36,6 +36,7 @@ export class SessionGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const rawKey: string | undefined = req.headers['x-api-key'];
     const orgId: string | undefined = req.headers['x-organization-id'];
+    const requestedEnvironment = req.headers['x-environment'] === 'live' ? 'live' : 'test';
 
     if (rawKey) {
       const record = await this.apiKeys.validate(rawKey);
@@ -43,9 +44,13 @@ export class SessionGuard implements CanActivate {
       if (orgId && record.organizationId && record.organizationId !== orgId) {
         throw new ForbiddenException('API key is not scoped to this organization');
       }
+      if (record.environment !== requestedEnvironment) {
+        throw new ForbiddenException('API key is not scoped to this environment');
+      }
       req.apiKey = { id: record.id, organizationId: record.organizationId };
       req.tenantId = record.organizationId ?? orgId ?? null;
       req.user = { id: record.userId };
+      req.environment = record.environment;
       return true;
     }
 
@@ -60,6 +65,7 @@ export class SessionGuard implements CanActivate {
     req.session = session.session;
     req.user = session.user;
     req.tenantId = orgId ?? null;
+    req.environment = requestedEnvironment;
     return true;
   }
 }

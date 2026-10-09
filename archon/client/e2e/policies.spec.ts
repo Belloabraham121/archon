@@ -8,7 +8,7 @@ async function login(page: Page) {
   await page.locator('#email').fill(EMAIL);
   await page.locator('#password').fill(PASSWORD);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('**/dashboard', { timeout: 15_000 });
+  await page.waitForURL((url) => url.pathname === '/dashboard', { timeout: 15_000 });
   await expect(page.locator('#organization')).toContainText('E2E Test Org');
 }
 
@@ -34,9 +34,11 @@ test('creates, versions, and publishes a policy', async ({ page }) => {
   await expect(page.getByText(/DIRECT|REVIEW/).first()).toBeVisible();
 });
 
-test('replay workspace renders runs', async ({ page }) => {
+test('replay workspace executes a side-effect-free replay', async ({ page }) => {
   await login(page);
   await page.goto('/dashboard/replays');
   await expect(page.getByRole('heading', { name: /replay workspace/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /run replay/i })).toBeVisible();
+  await page.getByRole('button', { name: /run replay/i }).click();
+  await expect(page.getByRole('region', { name: /replay runs/i })).toContainText(/intents|complete/i);
 });

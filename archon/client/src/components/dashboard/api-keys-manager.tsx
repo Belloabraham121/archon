@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { activeOrgId, api } from "@/lib/api";
 import { notifyError, notifySuccess } from "@/lib/notify";
 
 type ApiKey = {
@@ -37,8 +37,10 @@ export function ApiKeysManager() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [organizationId, setOrganizationId] = useState<string | null | undefined>(undefined);
 
   const refresh = useCallback(async () => {
+    if (!activeOrgId()) return;
     try {
       setKeys(await api<ApiKey[]>("/api-keys"));
     } catch (err) {
@@ -47,21 +49,28 @@ export function ApiKeysManager() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    api<ApiKey[]>("/api-keys")
-      .then((list) => {
-        if (!cancelled) setKeys(list);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled)
-          setError(notifyError(err, "Failed to load keys"));
-      });
+    const handleOrg = () => {
+      const next = activeOrgId();
+      setOrganizationId(next);
+      setKeys(next ? null : []);
+      setCreated(null);
+    };
+    window.addEventListener("archon:organization-changed", handleOrg);
+    const initial = window.setTimeout(handleOrg, 0);
     return () => {
-      cancelled = true;
+      window.clearTimeout(initial);
+      window.removeEventListener("archon:organization-changed", handleOrg);
     };
   }, []);
 
+  useEffect(() => {
+    if (!organizationId) return;
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
+  }, [organizationId, refresh]);
+
   async function create() {
+    if (!organizationId) return;
     setError(null);
     setPending(true);
     try {
@@ -162,12 +171,15 @@ export function ApiKeysManager() {
           <button
             type="button"
             onClick={create}
-            disabled={pending}
+            disabled={pending || !organizationId}
             className="dashboard-button-primary disabled:opacity-60"
           >
             {pending ? "Creating…" : "Create API key"}
           </button>
         </div>
+        {organizationId === null ? (
+          <p className="mt-4 text-sm text-amber-200/75">Create or select an organization before creating an API key.</p>
+        ) : null}
         {error ? (
           <p role="alert" className="mt-4 rounded-lg border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
             {error}

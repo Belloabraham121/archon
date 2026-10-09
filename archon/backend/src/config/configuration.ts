@@ -14,4 +14,6 @@ export default () => ({
   JEV_MODEL: process.env.JEV_MODEL ?? 'jev-latest',
   JEV_TIMEOUT_MS: Number(process.env.JEV_TIMEOUT_MS ?? 2500),
   JEV_MAX_CALLS_PER_MINUTE: Number(process.env.JEV_MAX_CALLS_PER_MINUTE ?? 600),
+  JEV_CONFIDENCE_FLOOR: Number(process.env.JEV_CONFIDENCE_FLOOR ?? 0.5),
+  JEV_SHADOW: process.env.JEV_SHADOW ?? 'false',
 });

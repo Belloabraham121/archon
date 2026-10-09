@@ -5,7 +5,9 @@ import { CreateIntentDto } from './dto/create-intent.dto';
 import { EventsGateway } from '../gateway/events.gateway';
 import { EventsService } from '../events/events.module';
 import { PoliciesService } from '../policies/policies.service';
-import { PolicyRules } from '../policies/rules';
+import { compareDecimals, PolicyRules } from '../policies/rules';
+import { JudgmentsService } from '../judgments/judgments.service';
+import { JudgmentView } from '../judgments/judgment-pipeline';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainsService } from '../chains/chains.service';
 import { Quote as AdapterQuote } from '../chains/adapters/chain-adapter.interface';
@@ -24,27 +26,40 @@ type Constraints = {
   maximum_amount?: string;
 };
 
+/** Per-quote policy check. Returns the rejection reason, or null when valid. */
+export function rejectionReason(
+  quote: AdapterQuote,
+  constraints: Constraints,
+): string | null {
+  const approved = new Set(constraints.approved_venues ?? ['demo-amm', 'demo-rfq']);
+  const maximumSlippage = constraints.maximum_slippage_bps ?? 100;
+  const maximumFee = constraints.maximum_fee_bps ?? 100;
+  if (!approved.has(quote.venue)) return `${quote.venue} rejected: venue is not approved`;
+  if (quote.priceImpactBps > maximumSlippage) return `${quote.venue} rejected: price impact exceeds ${maximumSlippage} bps`;
+  if (quote.feeBps > maximumFee) return `${quote.venue} rejected: fee exceeds ${maximumFee} bps`;
+  if (new Date(quote.expiresAt).getTime() <= Date.now()) return `${quote.venue} rejected: quote expired`;
+  return null;
+}
+
 export function evaluateDeterministicRoute(
   amount: string,
   quotes: AdapterQuote[],
   constraints: Constraints,
 ) {
-  const approved = new Set(constraints.approved_venues ?? ['demo-amm', 'demo-rfq']);
-  const maximumSlippage = constraints.maximum_slippage_bps ?? 100;
-  const maximumFee = constraints.maximum_fee_bps ?? 100;
   const reasons: string[] = [];
   const amountExceedsCap = Boolean(
-    constraints.maximum_amount && Number(amount) > Number(constraints.maximum_amount),
+    constraints.maximum_amount && compareDecimals(amount, constraints.maximum_amount) > 0,
   );
   if (amountExceedsCap) reasons.push(`Amount exceeds policy cap of ${constraints.maximum_amount}`);
   const valid = amountExceedsCap ? [] : quotes.filter((quote) => {
-    if (!approved.has(quote.venue)) { reasons.push(`${quote.venue} rejected: venue is not approved`); return false; }
-    if (quote.priceImpactBps > maximumSlippage) { reasons.push(`${quote.venue} rejected: price impact exceeds ${maximumSlippage} bps`); return false; }
-    if (quote.feeBps > maximumFee) { reasons.push(`${quote.venue} rejected: fee exceeds ${maximumFee} bps`); return false; }
-    if (new Date(quote.expiresAt).getTime() <= Date.now()) { reasons.push(`${quote.venue} rejected: quote expired`); return false; }
+    const reason = rejectionReason(quote, constraints);
+    if (reason) {
+      reasons.push(reason);
+      return false;
+    }
     return true;
   });
-  const selected = valid.sort((a, b) => Number(b.amountOut) - Number(a.amountOut))[0];
+  const selected = valid.sort((a, b) => compareDecimals(b.amountOut, a.amountOut))[0];
   if (!selected) return { outcome: 'REVIEW', selected: null, reasons: reasons.length ? reasons : ['No valid venue quote remains'] };
   return { outcome: 'DIRECT', selected, reasons: [...reasons, `${selected.venue} selected for the highest valid net output`] };
 }
@@ -59,7 +74,59 @@ export class IntentsService {
     private readonly prisma: PrismaService,
     private readonly chains: ChainsService,
     private readonly policies: PoliciesService,
+    private readonly judgments: JudgmentsService,
   ) {}
+
+  /**
+   * Deterministic evaluation first, Tier-3 judgment second. Returns the
+   * final outcome/strategy/reasons plus any judgment evidence to persist.
+   */
+  private async decideWithJudgment(
+    organizationId: string,
+    amount: string,
+    quotes: AdapterQuote[],
+    constraints: Constraints,
+    contextFacts: Record<string, unknown>,
+  ) {
+    const evaluation = evaluateDeterministicRoute(amount, quotes, constraints);
+    const decided = await this.judgments.decide({
+      organizationId,
+      deterministic: {
+        outcome: evaluation.outcome,
+        selectedVenue: evaluation.selected?.venue ?? null,
+        reasons: evaluation.reasons,
+      },
+      quotes,
+      constraints,
+      context: contextFacts,
+    });
+    return { evaluation, decided };
+  }
+
+  private judgmentEvents(
+    organizationId: string,
+    environment: string,
+    intentId: string,
+    decided: { judgment: JudgmentView | null; fallback: boolean; fallbackReason: string | null; shadow: boolean },
+  ) {
+    if (!decided.judgment) return [];
+    const j = decided.judgment;
+    return [{
+      type: decided.fallback ? 'judgment.failed' : 'judgment.completed',
+      organizationId,
+      environment,
+      intentId,
+      payload: {
+        strategy: j.strategy,
+        confidence: j.confidence,
+        provider: j.provider,
+        model: j.model,
+        latencyMs: j.latencyMs,
+        fallbackReason: decided.fallbackReason,
+        shadow: decided.shadow,
+      },
+    }];
+  }
 
   async create(
     organizationId: string,
@@ -96,7 +163,16 @@ export class IntentsService {
     // by per-intent constraints. The decision links the active version.
     const active = await this.policies.activeRules(organizationId, environment);
     const constraints = this.policies.resolveEffective(active.rules, ((dto.constraints ?? {}) as PolicyRules));
-    const evaluation = evaluateDeterministicRoute(dto.amount, quotes, constraints);
+    const balances = await adapters[0].getBalances(organizationId, [dto.sell_asset, dto.buy_asset]).catch(() => ({}));
+    const feeEstimates = await Promise.all(quotes.map(async (quote) => {
+      try {
+        const estimate = await this.chains.get(dto.chain, quote.venue).estimateFees(quote);
+        return { venue: quote.venue, ...estimate };
+      } catch {
+        return { venue: quote.venue, gas: null, totalFeeBps: quote.feeBps };
+      }
+    }));
+    const capturedAt = Date.now();
     const contextFacts = {
       schemaVersion: 1,
       chain: dto.chain,
@@ -105,13 +181,25 @@ export class IntentsService {
       quoteCount: quotes.length,
       venuesConsidered: adapters.map((adapter) => this.venueOf(adapter)).sort(),
       failedVenues: failedVenues.sort(),
+      balances,
+      feeEstimates,
       quoteMetrics: quotes.map((quote) => ({
         venue: quote.venue,
         amountOut: quote.amountOut,
         priceImpactBps: quote.priceImpactBps,
         feeBps: quote.feeBps,
+        routeDepth: quote.routeDepth ?? 1,
+        quoteAgeMs: 0,
+        quoteTtlMs: Math.max(0, new Date(quote.expiresAt).getTime() - capturedAt),
       })).sort((a, b) => a.venue.localeCompare(b.venue)),
     };
+    const { evaluation, decided } = await this.decideWithJudgment(
+      organizationId,
+      dto.amount,
+      quotes,
+      constraints,
+      contextFacts,
+    );
     const contextHash = createHash('sha256').update(JSON.stringify(contextFacts)).digest('hex');
 
     try {
@@ -126,7 +214,7 @@ export class IntentsService {
             buyAsset: dto.buy_asset,
             amount: dto.amount,
             constraints: (dto.constraints ?? {}) as Prisma.InputJsonValue,
-            status: evaluation.outcome === 'DIRECT' ? 'decided' : 'review',
+            status: decided.outcome === 'DIRECT' ? 'decided' : 'review',
             idempotencyKey,
             quoteSet: { create: { quotes: { create: quotes.map((quote) => ({
               venue: quote.venue,
@@ -143,11 +231,22 @@ export class IntentsService {
             decision: { create: {
               organizationId,
               environment,
-              outcome: evaluation.outcome,
-              strategy: evaluation.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW',
-              confidence: evaluation.outcome === 'DIRECT' ? 1 : null,
-              reasons: evaluation.reasons,
+              outcome: decided.outcome,
+              strategy: decided.strategy,
+              confidence: decided.outcome === 'DIRECT' && !decided.judgment ? 1 : (decided.judgment?.confidence ?? null),
+              reasons: decided.reasons,
               policyVersionId: active.policyVersionId,
+              judgmentStrategy: decided.judgment?.strategy ?? null,
+              judgmentConfidence: decided.judgment?.confidence ?? null,
+              judgmentProvider: decided.judgment?.provider ?? null,
+              judgmentModel: decided.judgment?.model ?? null,
+              judgmentLatencyMs: decided.judgment?.latencyMs ?? null,
+              judgmentInputTokens: decided.judgment?.inputTokens ?? null,
+              judgmentOutputTokens: decided.judgment?.outputTokens ?? null,
+              judgmentCostUsd: decided.judgment?.estimatedCostUsd ?? null,
+              judgmentFallback: decided.fallback,
+              judgmentFallbackReason: decided.fallbackReason,
+              judgmentShadow: decided.shadow,
             } },
           },
           include: intentEvidence,
@@ -159,15 +258,18 @@ export class IntentsService {
             quoteSetId: intent.quoteSet?.id,
           },
         });
+        const judgmentRows = this.judgmentEvents(organizationId, environment, intent.id, decided);
         await tx.event.createMany({ data: [
           { type: 'intent.received', organizationId, environment, intentId: intent.id, payload: { type: dto.type } },
           { type: 'context.created', organizationId, environment, intentId: intent.id, payload: { hash: contextHash } },
-          { type: 'decision.created', organizationId, environment, intentId: intent.id, payload: { outcome: evaluation.outcome, selectedVenue: evaluation.selected?.venue ?? null } },
+          { type: 'decision.created', organizationId, environment, intentId: intent.id, payload: { outcome: decided.outcome, selectedVenue: evaluation.selected?.venue ?? null, fallback: decided.fallback } },
+          ...judgmentRows,
         ] });
         await tx.outboxEvent.createMany({ data: [
           { type: 'intent.received', organizationId, environment, intentId: intent.id, payload: { type: dto.type } },
           { type: 'context.created', organizationId, environment, intentId: intent.id, payload: { hash: contextHash } },
-          { type: 'decision.created', organizationId, environment, intentId: intent.id, payload: { outcome: evaluation.outcome, selectedVenue: evaluation.selected?.venue ?? null } },
+          { type: 'decision.created', organizationId, environment, intentId: intent.id, payload: { outcome: decided.outcome, selectedVenue: evaluation.selected?.venue ?? null, fallback: decided.fallback } },
+          ...judgmentRows,
         ] });
         return (await tx.executionIntent.findUnique({ where: { id: intent.id }, include: intentEvidence }))!;
       });
@@ -214,6 +316,34 @@ export class IntentsService {
     return intent.context;
   }
 
+  /** Delete one intent and its lifecycle rows. Quotes, context, decision, and plan cascade. */
+  async remove(organizationId: string, environment: string, id: string) {
+    await this.tenantIntent(organizationId, environment, id);
+    await this.prisma.$transaction([
+      this.prisma.event.deleteMany({ where: { intentId: id } }),
+      this.prisma.outboxEvent.deleteMany({ where: { intentId: id } }),
+      this.prisma.executionIntent.delete({ where: { id } }),
+    ]);
+    return { deleted: id };
+  }
+
+  /** Clear every intent of the active organization and environment. */
+  async removeAll(organizationId: string, environment: string) {
+    const intents = await this.prisma.executionIntent.findMany({
+      where: { organizationId, environment },
+      select: { id: true },
+    });
+    const ids = intents.map((intent) => intent.id);
+    if (ids.length === 0) return { deleted: 0 };
+    const [events, outbox, deleted] = await this.prisma.$transaction([
+      this.prisma.event.deleteMany({ where: { intentId: { in: ids } } }),
+      this.prisma.outboxEvent.deleteMany({ where: { intentId: { in: ids } } }),
+      this.prisma.executionIntent.deleteMany({ where: { id: { in: ids } } }),
+    ]);
+    this.logger.log({ organizationId, deleted: deleted.count }, 'Intents cleared');
+    return { deleted: deleted.count, events: events.count, outbox: outbox.count };
+  }
+
   /** Re-collect quotes for an intent and re-run deterministic evaluation. */
   async requote(organizationId: string, environment: string, id: string) {
     const existing = await this.tenantIntent(organizationId, environment, id);
@@ -239,7 +369,6 @@ export class IntentsService {
     // Re-evaluated under the currently active published version.
     const active = await this.policies.activeRules(organizationId, environment);
     const constraints = this.policies.resolveEffective(active.rules, ((existing.constraints ?? {}) as PolicyRules));
-    const evaluation = evaluateDeterministicRoute(existing.amount, quotes, constraints);
     const contextFacts = {
       schemaVersion: 1,
       chain: existing.chain,
@@ -258,6 +387,13 @@ export class IntentsService {
         }))
         .sort((a, b) => a.venue.localeCompare(b.venue)),
     };
+    const { evaluation, decided } = await this.decideWithJudgment(
+      organizationId,
+      existing.amount,
+      quotes,
+      constraints,
+      contextFacts,
+    );
     const contextHash = createHash('sha256').update(JSON.stringify(contextFacts)).digest('hex');
 
     const saved = await this.prisma.$transaction(async (tx) => {
@@ -290,29 +426,43 @@ export class IntentsService {
       const decision = await tx.decision.update({
         where: { intentId: existing.id },
         data: {
-          outcome: evaluation.outcome,
-          strategy: evaluation.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW',
-          confidence: evaluation.outcome === 'DIRECT' ? 1 : null,
-          reasons: evaluation.reasons,
+          outcome: decided.outcome,
+          strategy: decided.strategy,
+          confidence: decided.outcome === 'DIRECT' && !decided.judgment ? 1 : (decided.judgment?.confidence ?? null),
+          reasons: decided.reasons,
           quoteSetId: quoteSet.id,
           policyVersionId: active.policyVersionId,
+          judgmentStrategy: decided.judgment?.strategy ?? null,
+          judgmentConfidence: decided.judgment?.confidence ?? null,
+          judgmentProvider: decided.judgment?.provider ?? null,
+          judgmentModel: decided.judgment?.model ?? null,
+          judgmentLatencyMs: decided.judgment?.latencyMs ?? null,
+          judgmentInputTokens: decided.judgment?.inputTokens ?? null,
+          judgmentOutputTokens: decided.judgment?.outputTokens ?? null,
+          judgmentCostUsd: decided.judgment?.estimatedCostUsd ?? null,
+          judgmentFallback: decided.fallback,
+          judgmentFallbackReason: decided.fallbackReason,
+          judgmentShadow: decided.shadow,
         },
       });
       const intent = await tx.executionIntent.update({
         where: { id: existing.id },
-        data: { status: evaluation.outcome === 'DIRECT' ? 'decided' : 'review' },
+        data: { status: decided.outcome === 'DIRECT' ? 'decided' : 'review' },
         include: intentEvidence,
       });
+      const judgmentRows = this.judgmentEvents(organizationId, environment, intent.id, decided);
       await tx.event.createMany({
         data: [
           { type: 'intent.requoted', organizationId, environment, intentId: intent.id, payload: { quoteCount: quotes.length } },
-          { type: 'decision.updated', organizationId, environment, intentId: intent.id, payload: { outcome: evaluation.outcome, selectedVenue: evaluation.selected?.venue ?? null } },
+          { type: 'decision.updated', organizationId, environment, intentId: intent.id, payload: { outcome: decided.outcome, selectedVenue: evaluation.selected?.venue ?? null, fallback: decided.fallback } },
+          ...judgmentRows,
         ],
       });
       await tx.outboxEvent.createMany({
         data: [
           { type: 'intent.requoted', organizationId, environment, intentId: intent.id, payload: { quoteCount: quotes.length } },
-          { type: 'decision.updated', organizationId, environment, intentId: intent.id, payload: { outcome: evaluation.outcome, selectedVenue: evaluation.selected?.venue ?? null } },
+          { type: 'decision.updated', organizationId, environment, intentId: intent.id, payload: { outcome: decided.outcome, selectedVenue: evaluation.selected?.venue ?? null, fallback: decided.fallback } },
+          ...judgmentRows,
         ],
       });
       return { intent, decision };
@@ -441,6 +591,19 @@ export class IntentsService {
         ...intent.decision,
         selectedVenue: typeof selectedReason === 'string' ? selectedReason.split(' selected ')[0] : null,
         policyVersion: intent.decision.policyVersion ? `v${intent.decision.policyVersion.version}` : null,
+        judgment: intent.decision.judgmentStrategy ? {
+          strategy: intent.decision.judgmentStrategy,
+          confidence: intent.decision.judgmentConfidence,
+          provider: intent.decision.judgmentProvider,
+          model: intent.decision.judgmentModel,
+          latencyMs: intent.decision.judgmentLatencyMs,
+          inputTokens: intent.decision.judgmentInputTokens,
+          outputTokens: intent.decision.judgmentOutputTokens,
+          estimatedCostUsd: intent.decision.judgmentCostUsd,
+          fallback: intent.decision.judgmentFallback,
+          fallbackReason: intent.decision.judgmentFallbackReason,
+          shadow: intent.decision.judgmentShadow,
+        } : null,
       } : null,
       plan: intent.plan ?? null,
     };
