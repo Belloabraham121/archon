@@ -124,6 +124,7 @@ export class IntentsService {
         latencyMs: j.latencyMs,
         fallbackReason: decided.fallbackReason,
         shadow: decided.shadow,
+        allocation: j.allocation,
       },
     }];
   }
@@ -244,6 +245,7 @@ export class IntentsService {
               judgmentInputTokens: decided.judgment?.inputTokens ?? null,
               judgmentOutputTokens: decided.judgment?.outputTokens ?? null,
               judgmentCostUsd: decided.judgment?.estimatedCostUsd ?? null,
+              judgmentAllocation: decided.judgment?.allocation ? decided.judgment.allocation as Prisma.InputJsonValue : Prisma.JsonNull,
               judgmentFallback: decided.fallback,
               judgmentFallbackReason: decided.fallbackReason,
               judgmentShadow: decided.shadow,
@@ -251,11 +253,12 @@ export class IntentsService {
           },
           include: intentEvidence,
         });
+        const evidence = await tx.executionIntent.findUniqueOrThrow({ where: { id: intent.id }, include: intentEvidence });
         await tx.decision.update({
           where: { intentId: intent.id },
           data: {
-            contextSnapshotId: intent.context?.id,
-            quoteSetId: intent.quoteSet?.id,
+            contextSnapshotId: evidence.context?.id,
+            quoteSetId: evidence.quoteSet?.id,
           },
         });
         const judgmentRows = this.judgmentEvents(organizationId, environment, intent.id, decided);
@@ -440,6 +443,7 @@ export class IntentsService {
           judgmentInputTokens: decided.judgment?.inputTokens ?? null,
           judgmentOutputTokens: decided.judgment?.outputTokens ?? null,
           judgmentCostUsd: decided.judgment?.estimatedCostUsd ?? null,
+          judgmentAllocation: decided.judgment?.allocation ? decided.judgment.allocation as Prisma.InputJsonValue : Prisma.JsonNull,
           judgmentFallback: decided.fallback,
           judgmentFallbackReason: decided.fallbackReason,
           judgmentShadow: decided.shadow,
@@ -600,6 +604,7 @@ export class IntentsService {
           inputTokens: intent.decision.judgmentInputTokens,
           outputTokens: intent.decision.judgmentOutputTokens,
           estimatedCostUsd: intent.decision.judgmentCostUsd,
+          allocation: intent.decision.judgmentAllocation,
           fallback: intent.decision.judgmentFallback,
           fallbackReason: intent.decision.judgmentFallbackReason,
           shadow: intent.decision.judgmentShadow,

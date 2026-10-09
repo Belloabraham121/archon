@@ -16,4 +16,8 @@ export default () => ({
   JEV_MAX_CALLS_PER_MINUTE: Number(process.env.JEV_MAX_CALLS_PER_MINUTE ?? 600),
   JEV_CONFIDENCE_FLOOR: Number(process.env.JEV_CONFIDENCE_FLOOR ?? 0.5),
   JEV_SHADOW: process.env.JEV_SHADOW ?? 'false',
+  JEV_MAX_TOKENS_PER_MINUTE: Number(process.env.JEV_MAX_TOKENS_PER_MINUTE ?? 500_000),
+  JEV_CONCURRENCY: Number(process.env.JEV_CONCURRENCY ?? 4),
+  JEV_INPUT_COST_PER_MILLION: Number(process.env.JEV_INPUT_COST_PER_MILLION ?? 0),
+  JEV_OUTPUT_COST_PER_MILLION: Number(process.env.JEV_OUTPUT_COST_PER_MILLION ?? 0),
 });

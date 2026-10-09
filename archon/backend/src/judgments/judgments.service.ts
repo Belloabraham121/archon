@@ -47,29 +47,33 @@ export class JudgmentsService {
     const admitted = shouldEscalate({ outcome: deterministic.outcome, quotes, constraints });
     const shadow = (this.config.get<string>('JEV_SHADOW') ?? 'false') === 'true';
     const estimatedTokens = Math.max(1, Math.ceil(JSON.stringify(context).length / 4));
+    const validVenues = this.validVenues(quotes, constraints);
 
     if (!admitted) {
       if (!shadow || !this.budget.tryConsume(organizationId, 'background', estimatedTokens)) {
         return { judgment: null as JudgmentView | null, outcome: deterministic.outcome, strategy: deterministic.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW', reasons: deterministic.reasons, fallback: false, fallbackReason: null as string | null, shadow: false };
       }
-      const observed = await this.queue.enqueue('background', () => this.jev.judge(context));
+      const observed = await this.queue.enqueue('background', () => this.jev.judge(context, validVenues));
       return { judgment: { ...observed, shadow: true }, outcome: deterministic.outcome, strategy: deterministic.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW', reasons: deterministic.reasons, fallback: false, fallbackReason: null as string | null, shadow: true };
     }
 
     if (!this.budget.tryConsume(organizationId, priority, estimatedTokens)) {
       return { judgment: null as JudgmentView | null, outcome: deterministic.outcome, strategy: deterministic.outcome === 'DIRECT' ? 'DIRECT' : 'REVIEW', reasons: deterministic.reasons, fallback: true, fallbackReason: 'budget_exhausted', shadow: false };
     }
-    const judgment = await this.queue.enqueue(priority, () => this.jev.judge(context));
+    const judgment = await this.queue.enqueue(priority, () => this.jev.judge(context, validVenues));
+    const applied = applyJudgment(deterministic, judgment, this.confidenceFloor, validVenues);
+    return { judgment, ...applied, shadow: false };
+  }
+
+  private validVenues(quotes: AdapterQuote[], constraints: DecideInput['constraints']) {
     const approved = new Set(constraints.approved_venues ?? quotes.map((quote) => quote.venue));
-    const validVenues = quotes
+    return quotes
       .filter((quote) => approved.has(quote.venue))
       .filter((quote) => quote.priceImpactBps <= (constraints.maximum_slippage_bps ?? 10_000))
       .filter((quote) => quote.feeBps <= (constraints.maximum_fee_bps ?? 10_000))
       .filter((quote) => new Date(quote.expiresAt).getTime() > Date.now())
       .filter((quote) => Number.isFinite(Number(quote.amountOut)) && Number(quote.amountOut) > 0)
       .map((quote) => quote.venue);
-    const applied = applyJudgment(deterministic, judgment, this.confidenceFloor, validVenues);
-    return { judgment, ...applied, shadow: false };
   }
 
   requestJudgment(context: Record<string, unknown>) {
@@ -115,6 +119,7 @@ export class JudgmentsService {
       estimatedCostUsd: usage._sum.judgmentCostUsd ?? 0,
       byStrategy: byStrategy.map((row) => ({ strategy: row.judgmentStrategy, count: row._count })),
       byFallbackReason: byFallbackReason.map((row) => ({ reason: row.judgmentFallbackReason, count: row._count })),
+      provider: this.jev.status(),
     };
   }
 }
