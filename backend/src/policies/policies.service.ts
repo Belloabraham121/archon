@@ -54,7 +54,10 @@ export class PoliciesService {
     const target = policy.versions.find((v) => v.version === version);
     if (!target) throw new NotFoundException('Policy version not found');
     if (target.status === 'published') return target;
-    return this.prisma.policyVersion.update({ where: { id: target.id }, data: { status: 'published' } });
+    return this.prisma.policyVersion.update({
+      where: { id: target.id },
+      data: { status: 'published', publishedAt: new Date() },
+    });
   }
 
   /** Latest published version of a policy (null when nothing published yet). */
@@ -68,6 +71,14 @@ export class PoliciesService {
    * default policy exists (preserving Phase 2 behavior for existing orgs).
    */
   async activeRules(organizationId: string, environment: string): Promise<{ policyVersionId: string; rules: PolicyRules }> {
+    // A published operator policy must actually become active. Looking up only
+    // the built-in policy made successful publishes inert in the intent path.
+    const active = await this.prisma.policyVersion.findFirst({
+      where: { status: 'published', policy: { organizationId, environment } },
+      orderBy: { publishedAt: 'desc' },
+    });
+    if (active) return { policyVersionId: active.id, rules: (active.rules ?? {}) as PolicyRules };
+
     let policy = await this.prisma.policy.findUnique({
       where: { organizationId_environment_name: { organizationId, environment, name: DEFAULT_POLICY_NAME } },
       include: { versions: true },
@@ -78,10 +89,14 @@ export class PoliciesService {
         include: { versions: true },
       });
     }
-    const published = policy.versions.filter((v) => v.status === 'published').sort((a, b) => b.version - a.version)[0];
-    if (published) return { policyVersionId: published.id, rules: (published.rules ?? {}) as PolicyRules };
     const seeded = await this.prisma.policyVersion.create({
-      data: { policyId: policy.id, version: nextVersionNumber(policy.versions.map((v) => v.version)), status: 'published', rules: DEFAULT_RULES as unknown as Prisma.InputJsonValue },
+      data: {
+        policyId: policy.id,
+        version: nextVersionNumber(policy.versions.map((v) => v.version)),
+        status: 'published',
+        rules: DEFAULT_RULES as unknown as Prisma.InputJsonValue,
+        publishedAt: new Date(),
+      },
     });
     return { policyVersionId: seeded.id, rules: { ...DEFAULT_RULES } };
   }

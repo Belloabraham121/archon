@@ -27,6 +27,28 @@ type StoredPlan = {
   gas: string | null;
 } | null;
 
+type Judgment = {
+  strategy: string | null;
+  confidence: number | null;
+  provider: string | null;
+  model: string | null;
+  latencyMs: number | null;
+  fallback: boolean;
+  fallbackReason: string | null;
+  shadow: boolean;
+} | null;
+
+type JudgmentMetrics = {
+  total: number;
+  escalated: number;
+  escalationRate: number;
+  fallbacks: number;
+  fallbackRate: number;
+  rateLimited?: number;
+  avgLatencyMs: number | null;
+  byStrategy: Array<{ strategy: string | null; count: number }>;
+};
+
 type IntentResult = {
   replayed: boolean;
   intent: {
@@ -47,6 +69,7 @@ type IntentResult = {
     selectedVenue: string | null;
     policyVersion: string | null;
     reasons: string[];
+    judgment: Judgment;
   } | null;
   plan?: StoredPlan;
 };
@@ -71,7 +94,7 @@ type LifecycleEvent = {
 
 const VENUES_BY_CHAIN: Record<string, string[]> = {
   demo: ["demo-amm", "demo-rfq"],
-  base: ["base-amm", "base-rfq"],
+  base: ["0x", "odos"],
 };
 
 export function IntentsWorkspace() {
@@ -83,7 +106,10 @@ export function IntentsWorkspace() {
   const [simulating, setSimulating] = useState(false);
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [simError, setSimError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [timeline, setTimeline] = useState<LifecycleEvent[] | null>(null);
+  const [metrics, setMetrics] = useState<JudgmentMetrics | null>(null);
   const [nowTick, setNowTick] = useState(0);
   const [showNoOrgDialog, setShowNoOrgDialog] = useState(false);
   // undefined = org switcher has not resolved yet; null = no org exists.
@@ -108,6 +134,7 @@ export function IntentsWorkspace() {
       setSelected(null);
       setSimulation(null);
       setTimeline(null);
+      setMetrics(null);
       setOrganizationId(activeOrgId());
     };
     window.addEventListener("archon:organization-changed", handleOrg);
@@ -151,11 +178,62 @@ export function IntentsWorkspace() {
     };
   }, [selected, organizationId]);
 
+  // Judgment metrics for the header chips (7d window).
+  useEffect(() => {
+    if (!organizationId) return;
+    let cancelled = false;
+    api<JudgmentMetrics>("/metrics/judgments")
+      .then((m) => {
+        if (!cancelled) setMetrics(m);
+      })
+      .catch(() => {
+        if (!cancelled) setMetrics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
   function pick(item: IntentResult) {
     setSelected(item);
     setSimulation(null);
     setSimError("");
     setTimeline(null);
+  }
+
+  async function removeIntent() {
+    if (!selected || !window.confirm("Delete this intent and its quotes, decision, simulation, and timeline?")) return;
+    setDeleting(true);
+    try {
+      await api(`/intents/${selected.intent.id}`, { method: "DELETE" });
+      const id = selected.intent.id;
+      setItems((current) => (current ?? []).filter((item) => item.intent.id !== id));
+      setSelected(null);
+      setSimulation(null);
+      setTimeline(null);
+      notifySuccess("Intent deleted");
+    } catch (cause) {
+      notifyError(cause, "Could not delete intent");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function clearIntents() {
+    if (!items?.length || !window.confirm(`Delete all ${items.length} intents and their history? This cannot be undone.`)) return;
+    setClearing(true);
+    try {
+      const result = await api<{ deleted: number }>("/intents", { method: "DELETE" });
+      setItems([]);
+      setSelected(null);
+      setSimulation(null);
+      setTimeline(null);
+      notifySuccess(`Cleared ${result.deleted} intent${result.deleted === 1 ? "" : "s"}`);
+    } catch (cause) {
+      notifyError(cause, "Could not clear intents");
+    } finally {
+      setClearing(false);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -190,6 +268,7 @@ export function IntentsWorkspace() {
         result.decision?.outcome === "DIRECT" ? "Intent routed" : "Intent needs review",
         result.decision?.selectedVenue ?? undefined,
       );
+      void api<JudgmentMetrics>("/metrics/judgments").then(setMetrics).catch(() => undefined);
     } catch (cause) {
       setError(notifyError(cause, "Could not submit intent"));
     } finally {
@@ -233,9 +312,14 @@ export function IntentsWorkspace() {
   return (
     <div className="mx-auto max-w-[1500px]">
       <header>
-        <p className="dashboard-eyebrow">Deterministic routing</p>
+        <p className="dashboard-eyebrow">Deterministic routing + bounded judgment</p>
         <h1 className="mt-2 text-2xl font-medium tracking-[-.035em] sm:text-3xl">Live intents</h1>
-        <p className="mt-2 max-w-2xl text-sm text-white/42">Submit a normalized swap and inspect the quotes, context hash, policy evidence, simulation, and selected route.</p>
+        <p className="mt-2 max-w-2xl text-sm text-white/42">Submit a normalized swap and inspect the quotes, context hash, policy evidence, judgment, simulation, and selected route.</p>
+        {metrics && metrics.total > 0 && (
+          <p className="mt-3 font-mono text-[11px] text-white/35" aria-live="polite">
+            Jev (7d): {Math.round(metrics.escalationRate * 100)}% escalated · {Math.round(metrics.fallbackRate * 100)}% fallback{metrics.avgLatencyMs != null ? ` · ${Math.round(metrics.avgLatencyMs)}ms avg` : ""}{metrics.rateLimited ? ` · ${metrics.rateLimited} rate-limited` : ""}
+          </p>
+        )}
       </header>
 
       <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(300px,.65fr)_minmax(0,1.35fr)]">
@@ -276,7 +360,7 @@ export function IntentsWorkspace() {
         </form>
 
         <section className="dashboard-panel min-w-0 overflow-hidden">
-          <div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Recent intents</h2></div>
+          <div className="flex items-center justify-between gap-2 border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Recent intents</h2>{items && items.length > 0 && <button type="button" onClick={() => void clearIntents()} disabled={clearing} className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/55 transition hover:border-rose-400/40 hover:text-rose-200 disabled:opacity-50">{clearing ? "Clearing…" : "Clear all"}</button>}</div>
           {organizationId === undefined ? <StateMessage>Preparing your workspace…</StateMessage> : organizationId === null ? <StateMessage>No organization selected. Create or select an organization to submit intents.</StateMessage> : items === null ? <StateMessage>Loading intents…</StateMessage> : items.length === 0 ? <StateMessage>No intents yet. Submit the first deterministic route.</StateMessage> : (
             <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Intent</th><th>Pair</th><th>Amount</th><th>Decision</th><th>Received</th></tr></thead><tbody>
               {items.map((item) => <tr key={item.intent.id} onClick={() => pick(item)} className="cursor-pointer">
@@ -300,6 +384,8 @@ export function IntentsWorkspace() {
           timeline={timeline}
           onRequote={requote}
           onSimulate={simulate}
+          onDelete={removeIntent}
+          deleting={deleting}
         />
       )}
 
@@ -345,7 +431,7 @@ export function IntentsWorkspace() {
   );
 }
 
-function IntentInspector({ result, nowTick, requoting, simulating, simulation, simError, timeline, onRequote, onSimulate }: {
+function IntentInspector({ result, nowTick, requoting, simulating, simulation, simError, timeline, onRequote, onSimulate, onDelete, deleting }: {
   result: IntentResult;
   nowTick: number;
   requoting: boolean;
@@ -355,6 +441,8 @@ function IntentInspector({ result, nowTick, requoting, simulating, simulation, s
   timeline: LifecycleEvent[] | null;
   onRequote: () => void;
   onSimulate: () => void;
+  onDelete: () => void;
+  deleting: boolean;
 }) {
   void nowTick;
   const activeSim = simulation ?? (result.plan ? {
@@ -368,9 +456,9 @@ function IntentInspector({ result, nowTick, requoting, simulating, simulation, s
     },
   } : null);
   return <section className="mt-5 grid gap-5 lg:grid-cols-3" aria-label="Intent evidence">
-    <div className="dashboard-panel p-5"><p className="dashboard-eyebrow">Decision</p><div className="mt-4 flex items-center justify-between"><h2 className="text-xl font-medium">{result.decision?.outcome ?? "Pending"}</h2><span className="font-mono text-xs text-[#9cafff]">{result.decision?.policyVersion ?? "—"}</span></div><p className="mt-3 text-sm text-white/48">{result.decision?.selectedVenue ? `${result.decision.selectedVenue} is the best policy-valid route.` : "No valid direct route remains; manual review is required."}</p><ul className="mt-5 space-y-2 text-xs text-white/38">{result.decision?.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul></div>
+    <div className="dashboard-panel p-5"><p className="dashboard-eyebrow">Decision</p><div className="mt-4 flex items-center justify-between"><h2 className="text-xl font-medium">{result.decision?.outcome ?? "Pending"}</h2><span className="font-mono text-xs text-[#9cafff]">{result.decision?.policyVersion ?? "—"}</span></div><p className="mt-3 text-sm text-white/48">{result.decision?.selectedVenue ? `${result.decision.selectedVenue} is the best policy-valid route.` : "No valid direct route remains; manual review is required."}</p><ul className="mt-5 space-y-2 text-xs text-white/38">{result.decision?.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul><JudgmentBlock judgment={result.decision?.judgment ?? null} outcome={result.decision?.outcome ?? null} /></div>
     <div className="dashboard-panel overflow-hidden lg:col-span-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Normalized quotes</h2><div className="flex gap-2"><button type="button" onClick={onRequote} disabled={requoting} className="dashboard-button-secondary disabled:opacity-50">{requoting ? "Requoting…" : "Requote"}</button><button type="button" onClick={onSimulate} disabled={simulating || !result.decision?.selectedVenue} className="dashboard-button-secondary disabled:opacity-50">{simulating ? "Simulating…" : "Simulate plan"}</button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Normalized quotes</h2><div className="flex gap-2"><button type="button" onClick={onRequote} disabled={requoting} className="dashboard-button-secondary disabled:opacity-50">{requoting ? "Requoting…" : "Requote"}</button><button type="button" onClick={onSimulate} disabled={simulating || !result.decision?.selectedVenue} className="dashboard-button-secondary disabled:opacity-50">{simulating ? "Simulating…" : "Simulate plan"}</button><button type="button" onClick={onDelete} disabled={deleting} className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-white/55 transition hover:border-rose-400/40 hover:text-rose-200 disabled:opacity-50">{deleting ? "Deleting…" : "Delete intent"}</button></div></div>
       {result.quotes.length === 0 ? <StateMessage>No valid venue responded.</StateMessage> : <div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Venue</th><th>Output</th><th>Impact</th><th>Fee</th><th>Freshness</th><th>Expires</th></tr></thead><tbody>{result.quotes.map((quote) => <tr key={quote.id}><td className="font-medium text-white/75">{quote.venue}</td><td>{quote.amountOut}</td><td>{quote.priceImpactBps} bps</td><td>{quote.feeBps} bps</td><td><FreshnessBadge expiresAt={quote.expiresAt} /></td><td>{new Date(quote.expiresAt).toLocaleTimeString()}</td></tr>)}</tbody></table></div>}
       {simError && <p role="alert" className="m-4 rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{simError}</p>}
       {activeSim && (
@@ -383,6 +471,52 @@ function IntentInspector({ result, nowTick, requoting, simulating, simulation, s
     <div className="dashboard-panel p-5 lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="dashboard-eyebrow">Context snapshot</p><h2 className="mt-2 text-sm font-medium">Deterministic evidence</h2></div><code className="max-w-full truncate text-[10px] text-white/30">sha256:{result.context?.hash ?? "—"}</code></div><pre className="mt-4 overflow-auto rounded-lg border border-white/[.06] bg-black/20 p-4 text-[11px] leading-5 text-white/45">{JSON.stringify(result.context?.facts ?? {}, null, 2)}</pre></div>
     <div className="dashboard-panel overflow-hidden"><div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Event timeline</h2></div>{timeline === null ? <StateMessage>Loading timeline…</StateMessage> : timeline.length === 0 ? <StateMessage>No events yet.</StateMessage> : <ul className="space-y-1 p-4">{timeline.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-xs text-white/55"><span className="font-mono text-white/75">{event.type}</span><span>{new Date(event.createdAt).toLocaleTimeString()}</span></li>)}</ul>}</div>
   </section>;
+}
+
+function fallbackText(reason: string | null): string {
+  switch (reason) {
+    case "rate_limited":
+    case "rate_limited_cooldown":
+      return "Jev is rate-limited right now (429) — backing off instead of retrying blindly. The deterministic route stands.";
+    case "provider_overloaded":
+      return "Jev is overloaded (529) — retrying shortly. The deterministic route stands.";
+    case "jev_timeout":
+      return "Jev timed out — the deterministic route stands.";
+    case "unauthorized":
+      return "Jev rejected the API key (401) — check TYPESAFE_API_KEY. The deterministic route stands.";
+    case "provider_unreachable":
+      return "Jev is unreachable — the deterministic route stands.";
+    case "missing_api_key":
+      return "Jev API key is not configured — the deterministic route stands.";
+    case "budget_exhausted":
+      return "Jev budget for this minute is spent — the deterministic route stands.";
+    case "confidence_below_floor":
+      return "Jev was not confident enough — the deterministic route stands.";
+    case "policy_block_stands":
+      return "Jev recommended proceeding, but policy blocked this intent — held for review. Judgment can add caution, never approval.";
+    default:
+      return `Jev did not decide this intent (${reason ?? "fallback"}) — the deterministic route stands.`;
+  }
+}
+
+function JudgmentBlock({ judgment, outcome }: { judgment: Judgment; outcome: string | null }) {
+  if (!judgment) return <p className="mt-5 border-t border-white/[.06] pt-4 text-[11px] leading-5 text-white/30">No Jev escalation — deterministic policy decided alone.</p>;
+  return (
+    <div className="mt-5 space-y-3 border-t border-white/[.06] pt-4">
+      <div className="text-[11px] leading-5 text-white/45">
+        <p><span className="font-medium text-white/75">Jev {judgment.strategy}</span>{judgment.confidence != null ? ` · confidence ${judgment.confidence}` : ""}{judgment.latencyMs != null ? ` · ${judgment.latencyMs}ms` : ""}{judgment.model ? ` · ${judgment.model}` : ""}{judgment.shadow ? " · shadow" : ""}</p>
+      </div>
+      {judgment.fallback ? (
+        <p role="status" className="rounded-md border border-amber-300/15 bg-amber-300/[.07] p-3 text-xs leading-5 text-amber-100/70">
+          {fallbackText(judgment.fallbackReason)}
+        </p>
+      ) : outcome === "REVIEW" ? (
+        <p role="status" className="rounded-md border border-[#6e86ff]/20 bg-[#6e86ff]/10 p-3 text-xs leading-5 text-[#9cafff]">
+          Jev recommended {judgment.strategy} — routed to review. Policy blocks still stand: judgment can add caution, never approval.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function quoteMsLeft(expiresAt: string): number {

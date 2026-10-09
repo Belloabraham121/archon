@@ -1,4 +1,4 @@
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { TenancyService } from './tenancy.service';
 
@@ -10,5 +10,10 @@ export class TenancyController {
   @Get()
   mine(@Req() req: { user?: { id: string } }) {
     return this.tenancy.organizationsForUser(req.user!.id);
+  }
+
+  @Post(':id/switch')
+  switch(@Req() req: { user?: { id: string } }, @Param('id') id: string) {
+    return this.tenancy.switchOrganization(req.user!.id, id);
   }
 }

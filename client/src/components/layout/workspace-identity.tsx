@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { api, setActiveOrgId, type Organization } from "@/lib/api";
+import { activeOrgId, api, setActiveOrgId, type Organization } from "@/lib/api";
 import { notifyError } from "@/lib/notify";
 import {
   authClient,
@@ -17,32 +17,29 @@ export function OrgSwitcher() {
   const [orgs, setOrgs] = useState<Organization[] | null>(null);
   const [activeId, setActiveId] = useState<string>("");
 
-  useEffect(() => {
-    let cancelled = false;
-    api<Organization[]>("/organizations")
-      .then((list) => {
-        if (cancelled) return;
-        setOrgs(list);
-        const stored =
-          typeof window !== "undefined"
-            ? window.localStorage.getItem("archon:orgId")
-            : null;
-        const next =
-          (stored && list.some((o) => o.id === stored) ? stored : list[0]?.id) ??
-          "";
-        setActiveId(next);
-        setActiveOrgId(next || null);
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setOrgs([]);
-          notifyError(cause, "Could not load organizations");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      const list = await api<Organization[]>("/organizations");
+      setOrgs(list);
+      const stored = activeOrgId();
+      const next = (stored && list.some((o) => o.id === stored) ? stored : list[0]?.id) ?? "";
+      setActiveId(next);
+      if (stored !== (next || null)) setActiveOrgId(next || null);
+    } catch (cause) {
+      setOrgs([]);
+      notifyError(cause, "Could not load organizations");
+    }
   }, []);
+
+  useEffect(() => {
+    const handleChange = () => void load();
+    const timer = window.setTimeout(handleChange, 0);
+    window.addEventListener("archon:organization-changed", handleChange);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("archon:organization-changed", handleChange);
+    };
+  }, [load]);
 
   if (orgs === null) {    return (
       <div className="mt-2 w-full rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-sm text-white/35">
@@ -67,9 +64,17 @@ export function OrgSwitcher() {
       id="organization"
       aria-label="Organization"
       value={activeId}
-      onChange={(event) => {
-        setActiveId(event.target.value);
-        setActiveOrgId(event.target.value);
+      onChange={async (event) => {
+        const previous = activeId;
+        const next = event.target.value;
+        setActiveId(next);
+        try {
+          await api(`/organizations/${next}/switch`, { method: "POST" });
+          setActiveOrgId(next);
+        } catch (cause) {
+          setActiveId(previous);
+          notifyError(cause, "Could not switch organization");
+        }
       }}
       className="mt-2 w-full rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-sm font-medium text-white outline-none focus:border-[#6e86ff]"
     >
@@ -88,24 +93,25 @@ export function UserFooter() {
   const user = (data?.user ?? null) as SessionUser | null;
 
   const [role, setRole] = useState<string>("Member");
-  useEffect(() => {
-    let cancelled = false;
-    api<Organization[]>("/organizations")
-      .then((list) => {
-        if (cancelled) return;
-        const stored =
-          typeof window !== "undefined"
-            ? window.localStorage.getItem("archon:orgId")
-            : null;
-        const match =
-          list.find((o) => o.id === stored) ?? list[0] ?? null;
-        if (match) setRole(match.role === "owner" ? "Owner" : "Member");
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+  const loadRole = useCallback(async () => {
+    try {
+      const list = await api<Organization[]>("/organizations");
+      const stored = activeOrgId();
+      const match = list.find((o) => o.id === stored) ?? list[0] ?? null;
+      setRole(match?.role === "owner" ? "Owner" : "Member");
+    } catch {
+      // Identity remains usable when the optional role label cannot refresh.
+    }
   }, []);
+  useEffect(() => {
+    const handleChange = () => void loadRole();
+    const timer = window.setTimeout(handleChange, 0);
+    window.addEventListener("archon:organization-changed", handleChange);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("archon:organization-changed", handleChange);
+    };
+  }, [loadRole]);
 
   async function signOut() {
     await authClient.signOut();

@@ -1,6 +1,6 @@
-import { Injectable, Logger, Module } from '@nestjs/common';
+import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection } from 'nats';
+import { connect, NatsConnection, StorageType } from 'nats';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsController } from './events.controller';
@@ -19,15 +19,26 @@ function subjectFor(type: string): string {
 }
 
 @Injectable()
-export class EventsService {
+export class EventsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EventsService.name);
   private nc: NatsConnection | null = null;
   private connecting: Promise<NatsConnection | null> | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  onModuleInit() {
+    this.retryTimer = setInterval(() => void this.drain().catch(() => undefined), 5_000);
+    this.retryTimer.unref();
+  }
+
+  async onModuleDestroy() {
+    if (this.retryTimer) clearInterval(this.retryTimer);
+    if (this.nc && !this.nc.isClosed()) await this.nc.drain().catch(() => undefined);
+  }
 
   /**
    * Phase 1-compatible helper: logs only. Prefer enqueue() for durable rows.
@@ -92,6 +103,16 @@ export class EventsService {
         try {
           const servers = this.config.get<string>('NATS_URL') ?? 'nats://localhost:4222';
           this.nc = await connect({ servers, timeout: 1500, reconnect: true, maxReconnectAttempts: 2 });
+          const manager = await this.nc.jetstreamManager();
+          try {
+            await manager.streams.info('ARCHON_EVENTS');
+          } catch {
+            await manager.streams.add({
+              name: 'ARCHON_EVENTS',
+              subjects: ['archon.>'],
+              storage: StorageType.File,
+            });
+          }
           this.logger.log(`NATS connected (${servers})`);
           void this.drain().catch(() => undefined);
           return this.nc;
@@ -114,7 +135,8 @@ export class EventsService {
     if (!nc) return false;
     try {
       const codec = (await import('nats')).JSONCodec();
-      nc.publish(subjectFor(type), codec.encode({ id, type, ...envelope }));
+      const js = nc.jetstream();
+      await js.publish(subjectFor(type), codec.encode({ id, type, ...envelope }), { msgID: id });
       await this.prisma.outboxEvent.update({ where: { id }, data: { published: true } });
       return true;
     } catch (err) {

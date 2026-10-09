@@ -11,12 +11,27 @@ export interface PolicyRules {
 export const DEFAULT_POLICY_NAME = 'Deterministic routing v0';
 
 export const DEFAULT_RULES: Required<Pick<PolicyRules, 'approved_venues' | 'maximum_slippage_bps' | 'maximum_fee_bps'>> = {
-  approved_venues: ['demo-amm', 'demo-rfq', 'base-amm', 'base-rfq'],
+  approved_venues: ['demo-amm', 'demo-rfq', '0x', 'odos'],
   maximum_slippage_bps: 100,
   maximum_fee_bps: 100,
 };
 
 const POSITIVE_DECIMAL = /^(?=.*[1-9])\d+(\.\d+)?$/;
+
+/** Exact comparison for non-negative decimal strings; avoids precision loss
+ * in monetary limits and quote selection. */
+export function compareDecimals(a: string, b: string): number {
+  const [aWholeRaw, aFractionRaw = ''] = a.split('.');
+  const [bWholeRaw, bFractionRaw = ''] = b.split('.');
+  const aWhole = aWholeRaw.replace(/^0+(?=\d)/, '');
+  const bWhole = bWholeRaw.replace(/^0+(?=\d)/, '');
+  if (aWhole.length !== bWhole.length) return aWhole.length > bWhole.length ? 1 : -1;
+  if (aWhole !== bWhole) return aWhole > bWhole ? 1 : -1;
+  const length = Math.max(aFractionRaw.length, bFractionRaw.length);
+  const aFraction = aFractionRaw.padEnd(length, '0');
+  const bFraction = bFractionRaw.padEnd(length, '0');
+  return aFraction === bFraction ? 0 : aFraction > bFraction ? 1 : -1;
+}
 
 function isBps(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 10_000;
@@ -54,10 +69,18 @@ export function effectiveConstraints(
   intentConstraints: PolicyRules,
 ): PolicyRules {
   const merged: PolicyRules = { ...policyRules };
-  if (intentConstraints.approved_venues !== undefined) merged.approved_venues = intentConstraints.approved_venues;
-  if (intentConstraints.maximum_slippage_bps !== undefined) merged.maximum_slippage_bps = intentConstraints.maximum_slippage_bps;
-  if (intentConstraints.maximum_fee_bps !== undefined) merged.maximum_fee_bps = intentConstraints.maximum_fee_bps;
-  if (intentConstraints.maximum_amount !== undefined) merged.maximum_amount = intentConstraints.maximum_amount;
+  if (intentConstraints.approved_venues !== undefined) {
+    merged.approved_venues = policyRules.approved_venues
+      ? intentConstraints.approved_venues.filter((venue) => policyRules.approved_venues!.includes(venue))
+      : intentConstraints.approved_venues;
+  }
+  if (intentConstraints.maximum_slippage_bps !== undefined) merged.maximum_slippage_bps = Math.min(policyRules.maximum_slippage_bps ?? 10_000, intentConstraints.maximum_slippage_bps);
+  if (intentConstraints.maximum_fee_bps !== undefined) merged.maximum_fee_bps = Math.min(policyRules.maximum_fee_bps ?? 10_000, intentConstraints.maximum_fee_bps);
+  if (intentConstraints.maximum_amount !== undefined) {
+    merged.maximum_amount = policyRules.maximum_amount && compareDecimals(policyRules.maximum_amount, intentConstraints.maximum_amount) < 0
+      ? policyRules.maximum_amount
+      : intentConstraints.maximum_amount;
+  }
   return merged;
 }
 

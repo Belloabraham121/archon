@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -25,5 +25,19 @@ export class TenancyService {
       where: { userId_organizationId: { userId, organizationId } },
     });
     return member !== null;
+  }
+
+  async switchOrganization(userId: string, organizationId: string) {
+    const membership = await this.prisma.member.findUnique({
+      where: { userId_organizationId: { userId, organizationId } },
+      include: { organization: true },
+    });
+    if (!membership) throw new ForbiddenException('Not a member of this organization');
+    return {
+      id: membership.organization.id,
+      name: membership.organization.name,
+      slug: membership.organization.slug,
+      role: membership.role,
+    };
   }
 }

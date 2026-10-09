@@ -28,7 +28,7 @@ type SimResult = {
   reasons: string[];
 };
 
-const ALL_VENUES = ["demo-amm", "demo-rfq", "base-amm", "base-rfq"];
+const ALL_VENUES = ["demo-amm", "demo-rfq", "0x", "odos"];
 
 function rulesSummary(rules: Record<string, unknown>): string {
   const parts: string[] = [];
