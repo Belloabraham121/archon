@@ -22,6 +22,22 @@ const ALLOWED: JevStrategy[] = [
  * progress" into a caller-side timeout and defeat the documented behavior.
  */
 const DEFAULT_TIMEOUT_MS = 8000;
+const ALLOCATION_STEPS = Array.from({ length: 21 }, (_, index) => index * 5);
+
+type ChoiceAnswer = { choice?: string; confidence?: number };
+
+/** Turns System One's bounded choice answers into a structured split proposal. */
+export function parseAllocationAnswers(
+  answers: Record<string, ChoiceAnswer>,
+  eligibleVenues: string[],
+): Array<{ venue: string; percentage: number }> | undefined {
+  if (eligibleVenues.length < 2) return undefined;
+  const allocation = eligibleVenues.map((venue, index) => ({
+    venue,
+    percentage: Number(answers[`allocation_${index}`]?.choice),
+  }));
+  return allocation.every((item) => Number.isFinite(item.percentage)) ? allocation : undefined;
+}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -68,16 +84,29 @@ export class JevClient {
     this.timeoutMs = Number(config.get<string>('JEV_TIMEOUT_MS') ?? DEFAULT_TIMEOUT_MS);
     this.inputCostPerMillion = Number(config.get<string>('JEV_INPUT_COST_PER_MILLION') ?? 0);
     this.outputCostPerMillion = Number(config.get<string>('JEV_OUTPUT_COST_PER_MILLION') ?? 0);
-    this.client = key ? new TypeSafeClient() : null;
+    this.client = key ? new TypeSafeClient({ apiKey: key, defaultModel: this.model, timeout: this.timeoutMs }) : null;
     if (!key) this.logger.warn('TYPESAFE_API_KEY missing — Jev calls will use REVIEW fallback');
   }
 
-  async judge(state: Record<string, unknown>): Promise<JevJudgment> {
+  status() {
+    return { configured: this.client !== null, provider: 'typesafe-jev' as const, model: this.model, timeoutMs: this.timeoutMs };
+  }
+
+  async judge(state: Record<string, unknown>, eligibleVenues: string[] = []): Promise<JevJudgment> {
     const started = Date.now();
     if (!this.client) return this.fallback('missing_api_key', started);
     if (this.breaker.coolingDown) return this.fallback('rate_limited_cooldown', started);
 
     try {
+      const allocationQuestions = Object.fromEntries(
+        eligibleVenues.slice(0, 4).map((venue, index) => [
+          `allocation_${index}`,
+          choice(
+            `If strategy is SPLIT, what percentage of the input should use ${venue}? Choose 0 unless it belongs in the split. All selected percentages must total exactly 100.`,
+            Object.fromEntries(ALLOCATION_STEPS.map((percentage) => [String(percentage), `${percentage}% of input`])) as never,
+          ),
+        ]),
+      );
       const response = await withTimeout(
         this.client.systemOne({
           state: redactForJudgment(state) as never,
@@ -94,11 +123,14 @@ export class JevClient {
                 REVIEW: 'Needs human review',
               } as never,
             ),
+            ...allocationQuestions,
           },
+          model: this.model,
         }),
         this.timeoutMs,
       );
-      const raw = (response.answers as Record<string, { choice?: string; confidence?: number }>).strategy;
+      const answers = response.answers as Record<string, ChoiceAnswer>;
+      const raw = answers.strategy;
       const strategy = (raw?.choice ?? 'REVIEW') as JevStrategy;
       const confidence = raw?.confidence ?? 0;
       if (!ALLOWED.includes(strategy)) {
@@ -120,6 +152,7 @@ export class JevClient {
         estimatedCostUsd: inputTokens !== undefined || outputTokens !== undefined
           ? ((inputTokens ?? 0) * this.inputCostPerMillion + (outputTokens ?? 0) * this.outputCostPerMillion) / 1_000_000
           : undefined,
+        allocation: strategy === 'SPLIT' ? parseAllocationAnswers(answers, eligibleVenues.slice(0, 4)) : undefined,
       };
     } catch (err) {
       const { reason, retryAfterMs } = classifyJevError(err);

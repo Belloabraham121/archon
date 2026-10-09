@@ -56,3 +56,13 @@ test('an invalid split allocation is rejected by deterministic validation', () =
   assert.equal(result.fallbackReason, 'invalid_allocation');
   assert.equal(result.outcome, 'DIRECT');
 });
+
+test('a valid structured split remains an auditable recommendation', () => {
+  const result = applyJudgment(direct, judgment({
+    strategy: 'SPLIT',
+    allocation: [{ venue: 'demo-rfq', percentage: 60 }, { venue: 'demo-amm', percentage: 40 }],
+  }), FLOOR, ['demo-rfq', 'demo-amm']);
+  assert.equal(result.fallback, false);
+  assert.equal(result.strategy, 'REVIEW');
+  assert.equal(result.adoptedCaution, true);
+});

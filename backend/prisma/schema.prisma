@@ -235,6 +235,7 @@ model Decision {
   judgmentInputTokens    Int?
   judgmentOutputTokens   Int?
   judgmentCostUsd        Float?
+  judgmentAllocation     Json?
   judgmentFallback       Boolean         @default(false)
   judgmentFallbackReason String?
   judgmentShadow         Boolean         @default(false)

@@ -37,3 +37,10 @@ test('a clear winner never calls Jev', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'DIRECT' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/deterministic policy decided alone/i).first()).toBeVisible();
 });
+
+test('judgment metrics makes provider activation observable without exposing a secret', async ({ page }) => {
+  await login(page);
+  await page.goto('/dashboard/decisions');
+  await expect(page.getByRole('heading', { name: 'Judgment metrics' })).toBeVisible();
+  await expect(page.getByText(/Jev provider: (configured|not configured)/i)).toBeVisible();
+});

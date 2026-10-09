@@ -36,6 +36,7 @@ type Judgment = {
   fallback: boolean;
   fallbackReason: string | null;
   shadow: boolean;
+  allocation?: Array<{ venue: string; percentage: number }> | null;
 } | null;
 
 type JudgmentMetrics = {
@@ -514,6 +515,9 @@ function JudgmentBlock({ judgment, outcome }: { judgment: Judgment; outcome: str
         <p role="status" className="rounded-md border border-[#6e86ff]/20 bg-[#6e86ff]/10 p-3 text-xs leading-5 text-[#9cafff]">
           Jev recommended {judgment.strategy} — routed to review. Policy blocks still stand: judgment can add caution, never approval.
         </p>
+      ) : null}
+      {judgment.strategy === "SPLIT" && judgment.allocation?.length ? (
+        <p className="text-[11px] leading-5 text-white/45">Proposed split: {judgment.allocation.map((item) => `${item.venue} ${item.percentage}%`).join(" · ")}</p>
       ) : null}
     </div>
   );
