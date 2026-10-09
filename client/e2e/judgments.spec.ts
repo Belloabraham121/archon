@@ -38,9 +38,12 @@ test('a clear winner never calls Jev', async ({ page }) => {
   await expect(page.getByText(/deterministic policy decided alone/i).first()).toBeVisible();
 });
 
-test('judgment metrics makes provider activation observable without exposing a secret', async ({ page }) => {
+test('decisions workspace makes provider activation and a full intent decision observable', async ({ page }) => {
   await login(page);
   await page.goto('/dashboard/decisions');
-  await expect(page.getByRole('heading', { name: 'Judgment metrics' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Decisions' })).toBeVisible();
   await expect(page.getByText(/Jev provider: (configured|not configured)/i)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected intent decision detail' })).toBeVisible();
+  await expect(page.getByText('Deterministic decision')).toBeVisible();
+  await expect(page.getByText('Jev judgment')).toBeVisible();
 });
