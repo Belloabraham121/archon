@@ -50,4 +50,13 @@ export class TenancyService {
       role: membership.role,
     };
   }
+
+  async settings(organizationId: string, environment: string) {
+    return (await this.prisma.organizationSetting.findUnique({ where: { organizationId_environment: { organizationId, environment } } })) ?? { organizationId, environment, decisionRetentionDays: 365, judgmentFallback: 'review' };
+  }
+
+  async updateSettings(userId: string, organizationId: string, environment: string, input: { decisionRetentionDays?: number; judgmentFallback?: 'review' | 'deterministic' }) {
+    await this.requireOperator(userId, organizationId);
+    return this.prisma.organizationSetting.upsert({ where: { organizationId_environment: { organizationId, environment } }, create: { organizationId, environment, decisionRetentionDays: input.decisionRetentionDays ?? 365, judgmentFallback: input.judgmentFallback ?? 'review', updatedBy: userId }, update: { ...input, updatedBy: userId } });
+  }
 }
