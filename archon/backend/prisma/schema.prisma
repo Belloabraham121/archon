@@ -357,6 +357,43 @@ model WebhookDelivery {
   @@index([endpointId, createdAt])
 }
 
+// Phase 7: tenant-scoped connector availability. Adapters are registered in
+// code; this record determines whether an operator has allowed one to receive
+// quotes in an environment.
+model ConnectorSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  chain          String
+  venue          String
+  enabled        Boolean  @default(true)
+  changedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, environment, chain, venue])
+  @@index([organizationId, environment, enabled])
+}
+
+// Supplemental tamper-evident records for operator configuration actions.
+// Lifecycle events remain the source for pipeline state transitions and are
+// chained at audit read/export time with the same canonical encoder.
+model AuditRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  action         String
+  actorId        String?
+  resource       String
+  before         Json?
+  after          Json?
+  previousHash   String?
+  integrityHash  String   @unique
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}
+
 // Append-only lifecycle log. Backs GET /v1/events and the inspector
 // timeline; the NATS outbox publisher attaches in Phase 3.
 model Event {

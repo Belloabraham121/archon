@@ -96,6 +96,7 @@ type LifecycleEvent = {
 const VENUES_BY_CHAIN: Record<string, string[]> = {
   demo: ["demo-amm", "demo-rfq"],
   base: ["0x", "odos"],
+  tempo: ["tempo-payments"],
 };
 
 export function IntentsWorkspace() {
@@ -332,11 +333,12 @@ export function IntentsWorkspace() {
           </div>
           <fieldset className="space-y-5 p-5" disabled={submitting}>
             <legend className="sr-only">Swap details</legend>
-            <AssetField label="Chain" name="chain" defaultValue="demo" options={["demo", "base"]} />
+            <AssetField label="Chain" name="chain" defaultValue="demo" options={["demo", "base", "tempo"]} />
             <div className="grid gap-4 sm:grid-cols-2">
               <AssetField label="Sell asset" name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} />
-              <AssetField label="Buy asset" name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL"]} />
+              <AssetField label="Buy asset" name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL", "USDT"]} />
             </div>
+            <p className="-mt-2 text-[11px] leading-5 text-white/30">Tempo is a contrasting deterministic payment adapter: select USDC → USDT to exercise its fixed-price route.</p>
             <Field label="Amount" hint="Enter the amount in sell-asset units." name="amount" defaultValue="1000" inputMode="decimal" />
             <Field label="Maximum slippage" hint="Basis points (50 bps = 0.50%)." name="maximumSlippageBps" defaultValue="50" inputMode="numeric" suffix="bps" />
           {error && <p role="alert" className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}

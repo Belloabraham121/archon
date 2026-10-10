@@ -11,7 +11,7 @@ import { activeEnvironment, setActiveEnvironment, type ArchonEnvironment } from 
 const navigation = [
   { group: "Workspace", items: [
     ["Overview", "/dashboard", "grid"], ["Live intents", "/dashboard/intents", "pulse"],
-    ["Decisions", "/dashboard/decisions", "branch"], ["Executions", "/dashboard/executions", "send"],
+    ["Decisions", "/dashboard/decisions", "branch"], ["Executions", "/dashboard/executions", "send"], ["Operations", "/dashboard/operations", "grid"],
   ]},
   { group: "Control", items: [
     ["Policies", "/dashboard/policies", "shield"], ["Approvals", "/dashboard/approvals", "check"],

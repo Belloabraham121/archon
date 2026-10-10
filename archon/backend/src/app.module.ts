@@ -21,6 +21,7 @@ import { ReplayModule } from './replay/replay.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AuditModule } from './audit/audit.module';
+import { ConnectorsModule } from './connectors/connectors.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
 
@@ -47,6 +48,7 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
     AnalyticsModule,
     WebhooksModule,
     AuditModule,
+    ConnectorsModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor }],
 })
