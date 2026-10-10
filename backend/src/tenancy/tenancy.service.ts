@@ -27,6 +27,16 @@ export class TenancyService {
     return member !== null;
   }
 
+  async requireOperator(userId: string, organizationId: string) {
+    const member = await this.prisma.member.findUnique({
+      where: { userId_organizationId: { userId, organizationId } },
+    });
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      throw new ForbiddenException('Owner or admin role required for this operation');
+    }
+    return member;
+  }
+
   async switchOrganization(userId: string, organizationId: string) {
     const membership = await this.prisma.member.findUnique({
       where: { userId_organizationId: { userId, organizationId } },

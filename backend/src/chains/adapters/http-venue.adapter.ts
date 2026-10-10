@@ -76,12 +76,38 @@ abstract class HttpVenueAdapter implements ChainAdapter {
     return { ok: true, expectedOut: quote.amountOut };
   }
 
-  async submitAuthorizedTransaction(): Promise<{ hash: string }> {
-    throw new Error('phase 3 stops at simulation — submission lands in Phase 6');
+  async submitAuthorizedTransaction(signed: unknown): Promise<{ hash: string }> {
+    const rawTransaction = (signed as { rawTransaction?: unknown } | null)?.rawTransaction;
+    const rpcUrl = process.env.BASE_RPC_URL?.trim();
+    if (!rpcUrl) throw new Error('Base RPC is not configured for authorized submission');
+    if (typeof rawTransaction !== 'string' || !/^0x[0-9a-fA-F]+$/.test(rawTransaction)) {
+      throw new Error('A raw signed transaction is required for Base submission');
+    }
+    const response = await fetch(rpcUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_sendRawTransaction', params: [rawTransaction] }),
+      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Base RPC submission failed: HTTP ${response.status}`);
+    const body = await response.json() as { result?: unknown; error?: { message?: unknown } };
+    if (typeof body.result !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(body.result)) {
+      throw new Error(typeof body.error?.message === 'string' ? body.error.message : 'Base RPC rejected the signed transaction');
+    }
+    return { hash: body.result };
   }
 
-  async getExecutionStatus(): Promise<string> {
-    return 'simulated';
+  async getExecutionStatus(hash: string): Promise<string> {
+    const rpcUrl = process.env.BASE_RPC_URL?.trim();
+    if (!rpcUrl) return 'pending';
+    const response = await fetch(rpcUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }),
+      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Base RPC status failed: HTTP ${response.status}`);
+    const body = await response.json() as { result?: { status?: unknown } | null };
+    if (!body.result) return 'pending';
+    return body.result.status === '0x1' ? 'confirmed' : 'failed';
   }
 
   protected normalized(params: { sellAsset: string; buyAsset: string; amount: string }) {

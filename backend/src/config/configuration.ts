@@ -20,4 +20,5 @@ export default () => ({
   JEV_CONCURRENCY: Number(process.env.JEV_CONCURRENCY ?? 4),
   JEV_INPUT_COST_PER_MILLION: Number(process.env.JEV_INPUT_COST_PER_MILLION ?? 0),
   JEV_OUTPUT_COST_PER_MILLION: Number(process.env.JEV_OUTPUT_COST_PER_MILLION ?? 0),
+  WEBHOOK_SIGNING_SECRET: process.env.WEBHOOK_SIGNING_SECRET ?? '',
 });

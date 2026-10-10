@@ -143,6 +143,8 @@ model ExecutionIntent {
   context        ContextSnapshot?
   decision       Decision?
   plan           ExecutionPlan?
+  approvals      Approval[]
+  executions     ExecutionAttempt[]
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -259,6 +261,100 @@ model ExecutionPlan {
   gas         String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+}
+
+// Phase 6: a non-custodial attempt created only after explicit caller
+// authorization. The raw signed transaction is never persisted.
+model ExecutionAttempt {
+  id                String          @id @default(cuid())
+  organizationId    String
+  environment       String          @default("test")
+  intentId          String
+  intent            ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  planId            String
+  venue             String
+  chain             String
+  status            String          @default("pending")
+  signer            String?
+  authorizationHash String
+  transactionHash   String?
+  expectedOut       String?
+  realizedOut       String?
+  failureReason     String?
+  submittedAt       DateTime?
+  confirmedAt       DateTime?
+  reorgedAt         DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([organizationId, environment, createdAt])
+  @@index([intentId, createdAt])
+  @@unique([organizationId, environment, authorizationHash])
+}
+
+// A review decision produces exactly one open approval at a time. Replacement
+// proposals are immutable JSON evidence; they never overwrite the intent.
+model Approval {
+  id                  String          @id @default(cuid())
+  organizationId      String
+  environment         String          @default("test")
+  intentId            String
+  intent              ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  status              String          @default("pending")
+  reason              String
+  originalProposal    Json
+  replacementProposal Json?
+  resolutionReason    String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([organizationId, environment, status, createdAt])
+  @@index([intentId, createdAt])
+}
+
+model KillSwitch {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  enabled        Boolean  @default(false)
+  reason         String?
+  changedBy      String?
+  changedAt      DateTime @updatedAt
+
+  @@unique([organizationId, environment])
+}
+
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  url            String
+  events         String[]
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deliveries     WebhookDelivery[]
+
+  @@index([organizationId, environment, createdAt])
+}
+
+model WebhookDelivery {
+  id          String          @id @default(cuid())
+  endpointId  String
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  eventType   String
+  payload     Json
+  status      String          @default("pending")
+  attempts    Int             @default(0)
+  responseCode Int?
+  error       String?
+  deliveredAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([endpointId, createdAt])
 }
 
 // Append-only lifecycle log. Backs GET /v1/events and the inspector

@@ -65,19 +65,25 @@ export class MockVenueAdapter implements ChainAdapter {
   }
 
   async buildPlan(decision: unknown): Promise<unknown> {
-    return { venue: this.venue, decision, note: 'mock plan — no signing in Phase 2' };
+    const quoteExpiresAt = (decision as { selectedQuote?: { expiresAt?: unknown } } | null)?.selectedQuote?.expiresAt;
+    return { venue: this.venue, decision, quoteExpiresAt, note: 'deterministic demo plan — explicit demo authorization required for Phase 6 execution' };
   }
 
   async simulate(plan: unknown): Promise<{ ok: boolean; expectedOut: string }> {
     return { ok: true, expectedOut: '0' };
   }
 
-  async submitAuthorizedTransaction(): Promise<{ hash: string }> {
-    throw new Error('mock adapter never submits — Phase 6 wires submission');
+  async submitAuthorizedTransaction(signed: unknown): Promise<{ hash: string }> {
+    const authorization = (signed as { authorization?: unknown } | null)?.authorization;
+    if (authorization !== 'demo-authorized') throw new Error('Demo execution requires explicit demo authorization');
+    const payload = JSON.stringify({ venue: this.venue, signed });
+    let hash = 0;
+    for (let index = 0; index < payload.length; index += 1) hash = ((hash << 5) - hash + payload.charCodeAt(index)) | 0;
+    return { hash: `demo_${Math.abs(hash).toString(16).padStart(16, '0')}` };
   }
 
-  async getExecutionStatus(): Promise<string> {
-    return 'simulated';
+  async getExecutionStatus(hash: string): Promise<string> {
+    return hash.startsWith('demo_') ? 'confirmed' : 'pending';
   }
 }
 
