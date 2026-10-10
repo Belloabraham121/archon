@@ -13,6 +13,7 @@ import { AuditWorkspace } from "@/components/dashboard/audit-workspace";
 import { ConnectorsWorkspace } from "@/components/dashboard/connectors-workspace";
 import { SettingsWorkspace } from "@/components/dashboard/settings-workspace";
 import { TeamWorkspace } from "@/components/dashboard/team-workspace";
+import { ExecutionMaintenance } from "@/components/dashboard/execution-maintenance";
 
 export function generateStaticParams() { return Object.keys(dashboardSections).map((section) => ({ section })); }
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
@@ -25,7 +26,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   if (section === "policies") return <PoliciesManager />;
   if (section === "replays") return <ReplaysManager />;
   if (section === "decisions") return <DecisionsWorkspace />;
-  if (section === "executions") return <ExecutionWorkspace />;
+  if (section === "executions") return <><ExecutionWorkspace /><ExecutionMaintenance /></>;
   if (section === "approvals") return <ApprovalsWorkspace />;
   if (section === "operations") return <OperationsWorkspace />;
   if (section === "audit") return <AuditWorkspace />;
