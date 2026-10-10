@@ -5,6 +5,7 @@ import { ChainsService } from '../chains/chains.service';
 import { TenancyService } from '../tenancy/tenancy.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { ExecuteIntentDto } from './dto/execute-intent.dto';
+import { ConnectorsService } from '../connectors/connectors.service';
 
 export type ObservedExecutionStatus = 'pending' | 'confirmed' | 'failed' | 'reorged';
 
@@ -17,7 +18,7 @@ export function transitionExecutionStatus(status: ObservedExecutionStatus) {
 
 @Injectable()
 export class ExecutionService {
-  constructor(private readonly prisma: PrismaService, private readonly chains: ChainsService, private readonly tenancy: TenancyService, private readonly webhooks: WebhooksService) {}
+  constructor(private readonly prisma: PrismaService, private readonly chains: ChainsService, private readonly tenancy: TenancyService, private readonly webhooks: WebhooksService, private readonly connectors: ConnectorsService) {}
 
   async execute(organizationId: string, environment: string, userId: string, intentId: string, dto: ExecuteIntentDto) {
     const kill = await this.killSwitch(organizationId, environment);
@@ -27,6 +28,7 @@ export class ExecutionService {
     if (!intent) throw new NotFoundException('Intent not found');
     if (intent.chain === 'demo' && environment !== 'test') throw new ForbiddenException('The deterministic demo adapter is only available in the test environment');
     if (!intent.plan?.simOk) throw new BadRequestException('A successful simulation is required before execution');
+    await this.connectors.requireEnabled(organizationId, environment, intent.plan.chain, intent.plan.venue);
     const approval = intent.approvals[0];
     const allowed = intent.decision?.outcome === 'DIRECT' || approval?.status === 'approved';
     if (!allowed) throw new ForbiddenException('This intent requires an approved authorization before execution');
@@ -35,7 +37,7 @@ export class ExecutionService {
     const adapter = this.chains.get(intent.plan.chain, intent.plan.venue);
     const attempt = await this.prisma.executionAttempt.create({ data: { organizationId, environment, intentId: intent.id, planId: intent.plan.id, venue: intent.plan.venue, chain: intent.plan.chain, signer: dto.signer ?? userId, authorizationHash, expectedOut: intent.plan.expectedOut } });
     try {
-      const submitted = await adapter.submitAuthorizedTransaction(intent.chain === 'demo' ? { authorization: dto.authorization, signer: dto.signer ?? userId } : { rawTransaction: dto.authorization });
+      const submitted = await adapter.submitAuthorizedTransaction(['demo', 'tempo'].includes(intent.chain) ? { authorization: dto.authorization, signer: dto.signer ?? userId } : { rawTransaction: dto.authorization });
       const observed = this.toObservedStatus(await adapter.getExecutionStatus(submitted.hash));
       const execution = await this.prisma.$transaction(async (tx) => {
         const updated = await tx.executionAttempt.update({ where: { id: attempt.id }, data: { transactionHash: submitted.hash, submittedAt: new Date(), ...transitionExecutionStatus(observed) } });

@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChainsService } from '../chains/chains.service';
 import { Quote as AdapterQuote } from '../chains/adapters/chain-adapter.interface';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 
 const intentEvidence = {
   quoteSet: { include: { quotes: true } },
@@ -77,6 +78,7 @@ export class IntentsService {
     private readonly policies: PoliciesService,
     private readonly judgments: JudgmentsService,
     private readonly approvals: ApprovalsService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   /**
@@ -146,10 +148,11 @@ export class IntentsService {
 
     let adapters;
     try {
-      adapters = this.chains.forChain(dto.chain);
+      adapters = await this.connectors.enabledForChain(organizationId, environment, dto.chain);
     } catch {
       throw new BadRequestException(`Unsupported chain: ${dto.chain}`);
     }
+    if (!adapters.length) throw new BadRequestException(`No enabled connectors for chain: ${dto.chain}`);
 
     const settled = await Promise.allSettled(
       adapters.map((adapter) => adapter.collectQuotes({
@@ -358,10 +361,11 @@ export class IntentsService {
     const existing = await this.tenantIntent(organizationId, environment, id);
     let adapters;
     try {
-      adapters = this.chains.forChain(existing.chain);
+      adapters = await this.connectors.enabledForChain(organizationId, environment, existing.chain);
     } catch {
       throw new BadRequestException(`Unsupported chain: ${existing.chain}`);
     }
+    if (!adapters.length) throw new BadRequestException(`No enabled connectors for chain: ${existing.chain}`);
     const settled = await Promise.allSettled(
       adapters.map((adapter) =>
         adapter.collectQuotes({
@@ -504,6 +508,7 @@ export class IntentsService {
     }
     let adapter;
     try {
+      await this.connectors.requireEnabled(organizationId, environment, intent.chain, selectedVenue);
       adapter = this.chains.get(intent.chain, selectedVenue);
     } catch {
       throw new BadRequestException(`Unsupported venue ${selectedVenue} on ${intent.chain}`);
