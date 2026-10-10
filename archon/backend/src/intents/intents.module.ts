@@ -7,9 +7,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { EventsModule } from '../events/events.module';
 import { PoliciesModule } from '../policies/policies.module';
 import { JudgmentsModule } from '../judgments/judgments.module';
+import { ApprovalsModule } from '../approvals/approvals.module';
 
 @Module({
-  imports: [GatewayModule, ChainsModule, PrismaModule, EventsModule, PoliciesModule, JudgmentsModule],
+  imports: [GatewayModule, ChainsModule, PrismaModule, EventsModule, PoliciesModule, JudgmentsModule, ApprovalsModule],
   controllers: [IntentsController],
   providers: [IntentsService],
   exports: [IntentsService],

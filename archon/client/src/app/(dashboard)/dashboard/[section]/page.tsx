@@ -6,6 +6,8 @@ import { OrganizationsManager } from "@/components/dashboard/organizations-manag
 import { PoliciesManager } from "@/components/dashboard/policies-manager";
 import { ReplaysManager } from "@/components/dashboard/replays-manager";
 import { JudgmentMetrics } from "@/components/dashboard/judgment-metrics";
+import { ExecutionWorkspace } from "@/components/dashboard/execution-workspace";
+import { ApprovalsWorkspace } from "@/components/dashboard/approvals-workspace";
 
 export function generateStaticParams() { return Object.keys(dashboardSections).map((section) => ({ section })); }
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
@@ -18,5 +20,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   if (section === "policies") return <PoliciesManager />;
   if (section === "replays") return <ReplaysManager />;
   if (section === "decisions") return <JudgmentMetrics />;
+  if (section === "executions") return <ExecutionWorkspace />;
+  if (section === "approvals") return <ApprovalsWorkspace />;
   return <DashboardSectionPage section={section as keyof typeof dashboardSections} />;
 }

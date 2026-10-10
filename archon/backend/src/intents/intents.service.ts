@@ -11,6 +11,7 @@ import { JudgmentView } from '../judgments/judgment-pipeline';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainsService } from '../chains/chains.service';
 import { Quote as AdapterQuote } from '../chains/adapters/chain-adapter.interface';
+import { ApprovalsService } from '../approvals/approvals.service';
 
 const intentEvidence = {
   quoteSet: { include: { quotes: true } },
@@ -75,6 +76,7 @@ export class IntentsService {
     private readonly chains: ChainsService,
     private readonly policies: PoliciesService,
     private readonly judgments: JudgmentsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /**
@@ -278,6 +280,10 @@ export class IntentsService {
       });
       this.events.emitIntent(saved);
       this.events.emitDecision(saved.decision);
+      if (saved.decision?.outcome === 'REVIEW') {
+        const reviewReasons = Array.isArray(saved.decision.reasons) ? saved.decision.reasons.filter((reason): reason is string => typeof reason === 'string') : [];
+        await this.approvals.requestForReview(saved, reviewReasons.join('; ') || 'Decision requires review');
+      }
       void this.eventLog.drain(20).catch(() => undefined);
       this.logger.log({ organizationId, intentId: saved.id, latencyMs: Date.now() - startedAt }, 'Intent decided');
       return this.present(saved, false);
@@ -473,6 +479,10 @@ export class IntentsService {
     });
     this.events.emitIntent(saved.intent);
     this.events.emitDecision({ ...saved.decision, organizationId });
+    if (saved.decision.outcome === 'REVIEW') {
+      const reasons = Array.isArray(saved.decision.reasons) ? saved.decision.reasons.filter((reason): reason is string => typeof reason === 'string') : [];
+      await this.approvals.requestForReview(saved.intent, reasons.join('; ') || 'Requote requires review');
+    }
     void this.eventLog.drain(20).catch(() => undefined);
     return this.present(await this.tenantIntent(organizationId, environment, id), false);
   }
