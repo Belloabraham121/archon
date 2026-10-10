@@ -5,12 +5,14 @@ import { IntentsWorkspace } from "@/components/dashboard/intents-workspace";
 import { OrganizationsManager } from "@/components/dashboard/organizations-manager";
 import { PoliciesManager } from "@/components/dashboard/policies-manager";
 import { ReplaysManager } from "@/components/dashboard/replays-manager";
-import { JudgmentMetrics } from "@/components/dashboard/judgment-metrics";
+import { DecisionsWorkspace } from "@/components/dashboard/decisions-workspace";
 import { ExecutionWorkspace } from "@/components/dashboard/execution-workspace";
 import { ApprovalsWorkspace } from "@/components/dashboard/approvals-workspace";
 import { OperationsWorkspace } from "@/components/dashboard/operations-workspace";
 import { AuditWorkspace } from "@/components/dashboard/audit-workspace";
 import { ConnectorsWorkspace } from "@/components/dashboard/connectors-workspace";
+import { SettingsWorkspace } from "@/components/dashboard/settings-workspace";
+import { TeamWorkspace } from "@/components/dashboard/team-workspace";
 
 export function generateStaticParams() { return Object.keys(dashboardSections).map((section) => ({ section })); }
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
@@ -22,11 +24,13 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   if (section === "organizations") return <OrganizationsManager />;
   if (section === "policies") return <PoliciesManager />;
   if (section === "replays") return <ReplaysManager />;
-  if (section === "decisions") return <JudgmentMetrics />;
+  if (section === "decisions") return <DecisionsWorkspace />;
   if (section === "executions") return <ExecutionWorkspace />;
   if (section === "approvals") return <ApprovalsWorkspace />;
   if (section === "operations") return <OperationsWorkspace />;
   if (section === "audit") return <AuditWorkspace />;
   if (section === "connections") return <ConnectorsWorkspace />;
+  if (section === "settings") return <SettingsWorkspace />;
+  if (section === "team") return <TeamWorkspace />;
   return <DashboardSectionPage section={section as keyof typeof dashboardSections} />;
 }

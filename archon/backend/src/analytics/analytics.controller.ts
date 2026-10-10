@@ -9,4 +9,6 @@ export class AnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}
   @Get('execution-quality') @ApiOperation({ summary: 'Aggregate quoted versus realized execution quality' })
   quality(@TenantId() organizationId?: string, @TenantEnvironment() environment = 'test') { if (!organizationId) throw new BadRequestException('x-organization-id is required'); return this.analytics.executionQuality(organizationId, environment); }
+  @Get('overview') @ApiOperation({ summary: 'Aggregate live dashboard counters and recent execution status' })
+  overview(@TenantId() organizationId?: string, @TenantEnvironment() environment = 'test') { if (!organizationId) throw new BadRequestException('x-organization-id is required'); return this.analytics.overview(organizationId, environment); }
 }

@@ -28,4 +28,15 @@ export class AnalyticsService {
       venues: [...venues.entries()].map(([venue, item]) => ({ venue, attempts: item.attempts, confirmed: item.confirmed, winRate: item.attempts ? item.confirmed / item.attempts : 0, quotedVsRealizedBps: item.expected > 0 && item.realized > 0 ? ((item.realized - item.expected) / item.expected) * 10_000 : null })).sort((a, b) => b.winRate - a.winRate),
     };
   }
+
+  async overview(organizationId: string, environment: string) {
+    const [intents, decisions, executions, approvals, connectors] = await Promise.all([
+      this.prisma.executionIntent.count({ where: { organizationId, environment } }),
+      this.prisma.decision.count({ where: { organizationId, environment } }),
+      this.prisma.executionAttempt.findMany({ where: { organizationId, environment }, orderBy: { createdAt: 'desc' }, take: 8 }),
+      this.prisma.approval.count({ where: { organizationId, environment, status: 'pending' } }),
+      this.prisma.connectorSetting.count({ where: { organizationId, environment, enabled: false } }),
+    ]);
+    return { intents, decisions, approvalsPending: approvals, connectorsDisabled: connectors, executions: { total: executions.length, confirmed: executions.filter((item) => item.status === 'confirmed').length, failed: executions.filter((item) => item.status === 'failed').length, recent: executions } };
+  }
 }

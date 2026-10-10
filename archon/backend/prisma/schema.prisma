@@ -375,6 +375,19 @@ model ConnectorSetting {
   @@index([organizationId, environment, enabled])
 }
 
+model OrganizationSetting {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  environment           String   @default("test")
+  decisionRetentionDays Int      @default(365)
+  judgmentFallback      String   @default("review")
+  updatedBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([organizationId, environment])
+}
+
 // Supplemental tamper-evident records for operator configuration actions.
 // Lifecycle events remain the source for pipeline state transitions and are
 // chained at audit read/export time with the same canonical encoder.
