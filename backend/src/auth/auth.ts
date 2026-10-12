@@ -24,6 +24,21 @@ export const auth = betterAuth({
   // we adopt a first-party key plugin — Phase 2.
   plugins: [organization()],
   trustedOrigins: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
+  advanced: {
+    // Live frontend (vercel.app) calls a different-origin backend
+    // (locimind.org): the session cookie is third-party, so Lax cookies are
+    // dropped and login silently fails. SameSite=None + Secure + Partitioned
+    // (CHIPS) lets the browser keep it. Local dev stays Lax over HTTP —
+    // Secure cookies are never sent over http://localhost.
+    useSecureCookies:
+      process.env.NODE_ENV === 'production' ||
+      (process.env.BETTER_AUTH_URL ?? '').startsWith('https://'),
+    defaultCookieAttributes:
+      process.env.NODE_ENV === 'production' ||
+      (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
+        ? { sameSite: 'none', secure: true, partitioned: true, path: '/' }
+        : undefined,
+  },
 });
 
 export type AuthSession = typeof auth.$Infer.Session;
