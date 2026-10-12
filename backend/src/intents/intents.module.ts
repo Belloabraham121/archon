@@ -8,9 +8,10 @@ import { EventsModule } from '../events/events.module';
 import { PoliciesModule } from '../policies/policies.module';
 import { JudgmentsModule } from '../judgments/judgments.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
+import { ConnectorsModule } from '../connectors/connectors.module';
 
 @Module({
-  imports: [GatewayModule, ChainsModule, PrismaModule, EventsModule, PoliciesModule, JudgmentsModule, ApprovalsModule],
+  imports: [GatewayModule, ChainsModule, PrismaModule, EventsModule, PoliciesModule, JudgmentsModule, ApprovalsModule, ConnectorsModule],
   controllers: [IntentsController],
   providers: [IntentsService],
   exports: [IntentsService],

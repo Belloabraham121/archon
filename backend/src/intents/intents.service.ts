@@ -5,13 +5,14 @@ import { CreateIntentDto } from './dto/create-intent.dto';
 import { EventsGateway } from '../gateway/events.gateway';
 import { EventsService } from '../events/events.module';
 import { PoliciesService } from '../policies/policies.service';
-import { compareDecimals, PolicyRules } from '../policies/rules';
+import { compareDecimals, evaluateCustomRules, PolicyRules } from '../policies/rules';
 import { JudgmentsService } from '../judgments/judgments.service';
 import { JudgmentView } from '../judgments/judgment-pipeline';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainsService } from '../chains/chains.service';
 import { Quote as AdapterQuote } from '../chains/adapters/chain-adapter.interface';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 
 const intentEvidence = {
   quoteSet: { include: { quotes: true } },
@@ -25,6 +26,7 @@ type Constraints = {
   maximum_slippage_bps?: number;
   maximum_fee_bps?: number;
   maximum_amount?: string;
+  custom_rules?: PolicyRules['custom_rules'];
 };
 
 /** Per-quote policy check. Returns the rejection reason, or null when valid. */
@@ -77,6 +79,7 @@ export class IntentsService {
     private readonly policies: PoliciesService,
     private readonly judgments: JudgmentsService,
     private readonly approvals: ApprovalsService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   /**
@@ -91,6 +94,8 @@ export class IntentsService {
     contextFacts: Record<string, unknown>,
   ) {
     const evaluation = evaluateDeterministicRoute(amount, quotes, constraints);
+    const custom = evaluateCustomRules(constraints, contextFacts);
+    if (custom) return { evaluation: { ...evaluation, outcome: custom.outcome, selected: null, reasons: [...evaluation.reasons, `Custom policy: ${custom.reason}`] }, decided: { judgment: null, outcome: custom.outcome, strategy: custom.outcome, reasons: [...evaluation.reasons, `Custom policy: ${custom.reason}`], fallback: false, fallbackReason: null, shadow: false } };
     const decided = await this.judgments.decide({
       organizationId,
       deterministic: {
@@ -146,10 +151,11 @@ export class IntentsService {
 
     let adapters;
     try {
-      adapters = this.chains.forChain(dto.chain);
+      adapters = await this.connectors.enabledForChain(organizationId, environment, dto.chain);
     } catch {
       throw new BadRequestException(`Unsupported chain: ${dto.chain}`);
     }
+    if (!adapters.length) throw new BadRequestException(`No enabled connectors for chain: ${dto.chain}`);
 
     const settled = await Promise.allSettled(
       adapters.map((adapter) => adapter.collectQuotes({
@@ -164,9 +170,16 @@ export class IntentsService {
     );
     // Effective policy: active published version rules as defaults, narrowed
     // by per-intent constraints. The decision links the active version.
-    const active = await this.policies.activeRules(organizationId, environment);
+    const active = dto.policy_version_id
+      ? await this.policies.publishedRules(organizationId, environment, dto.policy_version_id)
+      : await this.policies.activeRules(organizationId, environment);
     const constraints = this.policies.resolveEffective(active.rules, ((dto.constraints ?? {}) as PolicyRules));
-    const balances = await adapters[0].getBalances(organizationId, [dto.sell_asset, dto.buy_asset]).catch(() => ({}));
+    const adapterBalances = await adapters[0].getBalances(organizationId, [dto.sell_asset, dto.buy_asset]).catch(() => ({}));
+    // Adapters use account-qualified keys internally. Context snapshots are
+    // user-facing evidence, so retain only the asset-to-balance view here.
+    const balances = Object.fromEntries(
+      [...new Set([dto.sell_asset, dto.buy_asset])].map((asset) => [asset, adapterBalances[`${organizationId}:${asset}`] ?? null]),
+    );
     const feeEstimates = await Promise.all(quotes.map(async (quote) => {
       try {
         const estimate = await this.chains.get(dto.chain, quote.venue).estimateFees(quote);
@@ -185,6 +198,8 @@ export class IntentsService {
       venuesConsidered: adapters.map((adapter) => this.venueOf(adapter)).sort(),
       failedVenues: failedVenues.sort(),
       balances,
+      account: { availableBalance: balances[dto.sell_asset] ?? null, balances },
+      actor: dto.actor ?? { id: 'anonymous', type: 'application', tier: 'default' }, recipient: dto.recipient ?? null, metadata: dto.metadata ?? {},
       feeEstimates,
       quoteMetrics: quotes.map((quote) => ({
         venue: quote.venue,
@@ -217,7 +232,7 @@ export class IntentsService {
             buyAsset: dto.buy_asset,
             amount: dto.amount,
             constraints: (dto.constraints ?? {}) as Prisma.InputJsonValue,
-            status: decided.outcome === 'DIRECT' ? 'decided' : 'review',
+            status: decided.outcome === 'DIRECT' ? 'decided' : decided.outcome === 'REVIEW' ? 'review' : 'blocked',
             idempotencyKey,
             quoteSet: { create: { quotes: { create: quotes.map((quote) => ({
               venue: quote.venue,
@@ -230,7 +245,7 @@ export class IntentsService {
               feeBps: quote.feeBps,
               expiresAt: new Date(quote.expiresAt),
             })) } } },
-            context: { create: { facts: contextFacts, hash: contextHash } },
+            context: { create: { facts: contextFacts as Prisma.InputJsonValue, hash: contextHash } },
             decision: { create: {
               organizationId,
               environment,
@@ -358,10 +373,11 @@ export class IntentsService {
     const existing = await this.tenantIntent(organizationId, environment, id);
     let adapters;
     try {
-      adapters = this.chains.forChain(existing.chain);
+      adapters = await this.connectors.enabledForChain(organizationId, environment, existing.chain);
     } catch {
       throw new BadRequestException(`Unsupported chain: ${existing.chain}`);
     }
+    if (!adapters.length) throw new BadRequestException(`No enabled connectors for chain: ${existing.chain}`);
     const settled = await Promise.allSettled(
       adapters.map((adapter) =>
         adapter.collectQuotes({
@@ -375,10 +391,17 @@ export class IntentsService {
     const failedVenues = settled.flatMap((result, index) =>
       result.status === 'rejected' ? [this.venueOf(adapters[index])] : [],
     );
-    // Re-evaluated under the currently active published version.
-    const active = await this.policies.activeRules(organizationId, environment);
+    // Preserve the policy version selected for the original decision. Requotes
+    // must not silently switch policy evidence when another version is published.
+    const active = existing.decision?.policyVersionId
+      ? await this.policies.publishedRules(organizationId, environment, existing.decision.policyVersionId)
+      : await this.policies.activeRules(organizationId, environment);
     const constraints = this.policies.resolveEffective(active.rules, ((existing.constraints ?? {}) as PolicyRules));
+    const previousFacts = existing.context?.facts && typeof existing.context.facts === 'object' && !Array.isArray(existing.context.facts)
+      ? existing.context.facts as Record<string, unknown>
+      : {};
     const contextFacts = {
+      ...previousFacts,
       schemaVersion: 1,
       chain: existing.chain,
       pair: `${existing.sellAsset}/${existing.buyAsset}`,
@@ -457,7 +480,7 @@ export class IntentsService {
       });
       const intent = await tx.executionIntent.update({
         where: { id: existing.id },
-        data: { status: decided.outcome === 'DIRECT' ? 'decided' : 'review' },
+        data: { status: decided.outcome === 'DIRECT' ? 'decided' : decided.outcome === 'REVIEW' ? 'review' : 'blocked' },
         include: intentEvidence,
       });
       const judgmentRows = this.judgmentEvents(organizationId, environment, intent.id, decided);
@@ -504,6 +527,7 @@ export class IntentsService {
     }
     let adapter;
     try {
+      await this.connectors.requireEnabled(organizationId, environment, intent.chain, selectedVenue);
       adapter = this.chains.get(intent.chain, selectedVenue);
     } catch {
       throw new BadRequestException(`Unsupported venue ${selectedVenue} on ${intent.chain}`);

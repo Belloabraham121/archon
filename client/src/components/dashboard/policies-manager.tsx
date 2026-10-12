@@ -47,6 +47,8 @@ export function PoliciesManager() {
   const [fee, setFee] = useState("100");
   const [cap, setCap] = useState("");
   const [venues, setVenues] = useState<string[]>(ALL_VENUES);
+  const [customRules, setCustomRules] = useState<Array<{ name: string; field: string; operator: string; value: string; outcome: "BLOCK" | "REVIEW"; reason: string }>>([]);
+  const [ruleField, setRuleField] = useState("actor.tier"); const [ruleOperator, setRuleOperator] = useState("equals"); const [ruleValue, setRuleValue] = useState(""); const [ruleOutcome, setRuleOutcome] = useState<"BLOCK" | "REVIEW">("BLOCK"); const [ruleReason, setRuleReason] = useState("");
   const [simVersion, setSimVersion] = useState("");
   const [simAmount, setSimAmount] = useState("1000");
   const [simResults, setSimResults] = useState<SimResult[] | null>(null);
@@ -126,6 +128,7 @@ export function PoliciesManager() {
         maximum_fee_bps: Number(fee),
       };
       if (cap.trim()) rules.maximum_amount = cap.trim();
+      if (customRules.length) rules.custom_rules = customRules.map((rule, index) => ({ ...rule, name: rule.name || `Rule ${index + 1}` }));
       await api(`/policies/${selected.id}/versions`, { method: "POST", body: JSON.stringify({ rules }) });
       await load();
       notifySuccess("Draft version saved");
@@ -146,6 +149,24 @@ export function PoliciesManager() {
       notifySuccess("Version published", `v${version} now decides new intents`);
     } catch (cause) {
       setError(notifyError(cause, "Could not publish version"));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removePolicy() {
+    if (!selected) return;
+    if (!window.confirm(`Delete “${selected.name}”? This is only possible when it has not been used by a decision.`)) return;
+    setPending(true);
+    setError("");
+    try {
+      await api(`/policies/${selected.id}`, { method: "DELETE" });
+      setSelectedId("");
+      setSimResults(null);
+      await load();
+      notifySuccess("Policy deleted", selected.name);
+    } catch (cause) {
+      setError(notifyError(cause, "Could not delete policy"));
     } finally {
       setPending(false);
     }
@@ -184,6 +205,7 @@ export function PoliciesManager() {
   function toggleVenue(venue: string) {
     setVenues((current) => (current.includes(venue) ? current.filter((v) => v !== venue) : [...current, venue]));
   }
+  function addCustomRule() { if (!ruleReason.trim() || (ruleOperator !== "exists" && !ruleValue.trim())) { setError("Give the custom rule a value (unless checking existence) and a reason."); return; } setCustomRules((current) => [...current, { name: ruleReason.trim(), field: ruleField, operator: ruleOperator, value: ruleValue, outcome: ruleOutcome, reason: ruleReason.trim() }]); setRuleValue(""); setRuleReason(""); }
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -244,7 +266,7 @@ export function PoliciesManager() {
         </section>
 
         <section className="dashboard-panel overflow-hidden" aria-label="Versions">
-          <div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">{selected ? `Versions — ${selected.name}` : "Versions"}</h2></div>
+          <div className="flex items-center justify-between gap-3 border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">{selected ? `Versions — ${selected.name}` : "Versions"}</h2>{selected && <button type="button" onClick={() => void removePolicy()} disabled={pending} className="rounded-md border border-rose-300/25 px-2 py-1 text-[11px] text-rose-200 transition hover:bg-rose-400/10 disabled:opacity-50">Delete policy</button>}</div>
           {!selected ? (
             <p className="p-8 text-center text-sm text-white/35">Select a policy to manage its versions.</p>
           ) : (
@@ -314,6 +336,7 @@ export function PoliciesManager() {
                     ))}
                   </div>
                 </fieldset>
+                <fieldset className="border-t border-white/[.07] pt-4"><legend className="text-xs font-medium text-white/65">Custom risk rules</legend><p className="mt-1 text-[11px] text-white/35">Evaluate actor, recipient, balance, or metadata facts. A matching rule deterministically blocks or requests review.</p><div className="mt-3 grid gap-2 sm:grid-cols-3"><select value={ruleField} onChange={(e) => setRuleField(e.target.value)} className="rounded border border-white/10 bg-[#111313] px-2 py-2 text-xs"><option value="actor.tier">Actor tier</option><option value="actor.type">Actor type</option><option value="recipient.allowlisted">Recipient allowlisted</option><option value="metadata.riskScore">Risk score</option><option value="metadata.dailyVolumeUsd">Daily volume USD</option></select><select value={ruleOperator} onChange={(e) => setRuleOperator(e.target.value)} className="rounded border border-white/10 bg-[#111313] px-2 py-2 text-xs"><option value="equals">equals</option><option value="not_equals">does not equal</option><option value="greater_than">greater than</option><option value="less_than">less than</option><option value="exists">exists</option></select><input value={ruleValue} onChange={(e) => setRuleValue(e.target.value)} placeholder="Value" disabled={ruleOperator === "exists"} className="rounded border border-white/10 bg-white/[.03] px-2 py-2 text-xs"/></div><div className="mt-2 flex flex-wrap gap-2"><select value={ruleOutcome} onChange={(e) => setRuleOutcome(e.target.value as "BLOCK" | "REVIEW")} className="rounded border border-white/10 bg-[#111313] px-2 py-2 text-xs"><option value="BLOCK">Block</option><option value="REVIEW">Require review</option></select><input value={ruleReason} onChange={(e) => setRuleReason(e.target.value)} placeholder="Explain why this rule applies" className="min-w-52 flex-1 rounded border border-white/10 bg-white/[.03] px-2 py-2 text-xs"/><button type="button" onClick={addCustomRule} className="dashboard-button-secondary">Add rule</button></div><ul className="mt-3 space-y-1 text-xs text-white/55">{customRules.map((rule, index) => <li key={`${rule.field}-${index}`} className="flex justify-between gap-2 rounded bg-white/[.03] p-2"><span>{rule.field} {rule.operator} {rule.value || "present"} → {rule.outcome}: {rule.reason}</span><button type="button" onClick={() => setCustomRules((rules) => rules.filter((_, position) => position !== index))} className="text-rose-200">Remove</button></li>)}</ul></fieldset>
                 <button type="submit" disabled={pending || venues.length === 0} className="dashboard-button-primary disabled:opacity-50">
                   {pending ? "Saving…" : "Save draft version"}
                 </button>
