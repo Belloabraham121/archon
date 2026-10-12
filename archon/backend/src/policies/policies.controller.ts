@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { TenantEnvironment, TenantId } from '../common/decorators/tenant.decorator';
 import { PoliciesService } from './policies.service';
@@ -31,6 +31,13 @@ export class PoliciesController {
   get(@Param('id') id: string, @TenantId() organizationId?: string, @TenantEnvironment() environment = 'test') {
     if (!organizationId) throw new BadRequestException('x-organization-id is required');
     return this.policies.get(organizationId, environment, id);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete an unused policy book and its draft versions' })
+  remove(@Param('id') id: string, @TenantId() organizationId?: string, @TenantEnvironment() environment = 'test') {
+    if (!organizationId) throw new BadRequestException('x-organization-id is required');
+    return this.policies.remove(organizationId, environment, id);
   }
 
   @Post(':id/versions')

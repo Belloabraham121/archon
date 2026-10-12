@@ -1,22 +1,456 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+
 import { activeOrgId, api } from "@/lib/api";
 import { notifyError, notifySuccess } from "@/lib/notify";
 
-type Intent = { id: string; chain: string; sellAsset: string; buyAsset: string; amount: string; status: string; plan: { id: string; simOk: boolean; venue: string; expectedOut: string | null } | null; decision: { outcome: string } | null };
-type Execution = { id: string; status: string; venue: string; chain: string; transactionHash: string | null; expectedOut: string | null; failureReason: string | null; createdAt: string; intent: Intent };
+type Intent = {
+  id: string;
+  chain: string;
+  sellAsset: string;
+  buyAsset: string;
+  amount: string;
+  status: string;
+  plan: {
+    id: string;
+    simOk: boolean;
+    venue: string;
+    expectedOut: string | null;
+  } | null;
+  decision: { outcome: string } | null;
+};
+type Execution = {
+  id: string;
+  status: string;
+  venue: string;
+  chain: string;
+  signer: string | null;
+  transactionHash: string | null;
+  expectedOut: string | null;
+  failureReason: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+  intent?: { context?: { facts?: { recipient?: { id?: string } } } | null };
+};
+const tempoExplorer = "https://explore.testnet.tempo.xyz";
 type Kill = { enabled: boolean; reason: string | null };
-type Endpoint = { id: string; url: string; events: string[]; enabled: boolean };
-type Delivery = { id: string; eventType: string; status: string; responseCode: number | null; error: string | null; createdAt: string; endpoint: { url: string } };
+type Endpoint = { id: string; url: string; events: string[] };
+type Delivery = {
+  id: string;
+  eventType: string;
+  status: string;
+  responseCode: number | null;
+  error: string | null;
+};
 
 export function ExecutionWorkspace() {
-  const [intents, setIntents] = useState<Intent[] | null>(null); const [executions, setExecutions] = useState<Execution[] | null>(null); const [kill, setKill] = useState<Kill | null>(null); const [endpoints, setEndpoints] = useState<Endpoint[] | null>(null); const [deliveries, setDeliveries] = useState<Delivery[] | null>(null); const [selected, setSelected] = useState<string>(""); const [authorization, setAuthorization] = useState(""); const [reason, setReason] = useState(""); const [webhookUrl, setWebhookUrl] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  const load = () => { if (!activeOrgId()) return; Promise.all([api<Intent[]>("/intents"), api<Execution[]>("/executions"), api<Kill>("/admin/kill-switch"), api<Endpoint[]>("/webhooks"), api<Delivery[]>("/webhooks/deliveries")]).then(([nextIntents, nextExecutions, nextKill, nextEndpoints, nextDeliveries]) => { setIntents(nextIntents); setExecutions(nextExecutions); setKill(nextKill); setEndpoints(nextEndpoints); setDeliveries(nextDeliveries); setSelected((value) => value || nextIntents.find((intent) => intent.plan?.simOk && (intent.decision?.outcome === "DIRECT" || intent.status === "approved"))?.id || ""); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load execution operations")); };
-  useEffect(() => { load(); window.addEventListener("archon:organization-changed", load); return () => window.removeEventListener("archon:organization-changed", load); }, []);
-  const executable = intents?.filter((intent) => intent.plan?.simOk && (intent.decision?.outcome === "DIRECT" || intent.status === "approved")) ?? [];
-  async function execute(event: FormEvent) { event.preventDefault(); if (!selected) return; setBusy(true); setError(""); try { const result = await api<Execution>(`/intents/${selected}/execute`, { method: "POST", body: JSON.stringify({ authorization }) }); notifySuccess("Execution submitted", result.status); setAuthorization(""); load(); } catch (cause) { setError(notifyError(cause, "Execution was not submitted")); } finally { setBusy(false); } }
-  async function toggleKill() { const enabled = !kill?.enabled; if (enabled && !reason.trim()) { setError("Enter an operations reason before enabling the kill switch."); return; } if (!window.confirm(`${enabled ? "Enable" : "Disable"} the execution kill switch?`)) return; setBusy(true); try { await api<Kill>("/admin/kill-switch", { method: "POST", body: JSON.stringify({ enabled, reason: reason.trim() || undefined }) }); notifySuccess(enabled ? "Execution halted" : "Execution resumed"); setReason(""); load(); } catch (cause) { setError(notifyError(cause, "Could not update kill switch")); } finally { setBusy(false); } }
-  async function createWebhook(event: FormEvent) { event.preventDefault(); setBusy(true); try { await api("/webhooks", { method: "POST", body: JSON.stringify({ url: webhookUrl, events: ["execution.submitted", "execution.confirmed", "execution.failed", "approval.resolved"] }) }); notifySuccess("Webhook endpoint created"); setWebhookUrl(""); load(); } catch (cause) { setError(notifyError(cause, "Could not create webhook")); } finally { setBusy(false); } }
-  return <div className="mx-auto max-w-[1500px]"><header><p className="dashboard-eyebrow">Authorized operations</p><h1 className="mt-2 text-3xl font-medium">Executions</h1><p className="mt-2 max-w-2xl text-sm text-white/42">Archon never holds a signing key. A plan must be simulated, then explicitly authorized by the caller before adapter submission.</p></header>{error && <p role="alert" className="mt-5 rounded-lg border border-rose-400/25 bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p>}{!intents || !executions || !kill || !endpoints || !deliveries ? <p className="mt-7 text-sm text-white/35">Loading execution operations…</p> : <><section className={`mt-6 rounded-lg border p-4 ${kill.enabled ? "border-rose-400/35 bg-rose-400/10" : "border-emerald-400/20 bg-emerald-400/[.04]"}`} role="status"><p className="font-medium">{kill.enabled ? "Execution kill switch is active" : "Execution submission is enabled"}</p><p className="mt-1 text-xs text-white/55">{kill.reason ?? "No active operations restriction."}</p><div className="mt-3 flex flex-wrap gap-2"><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason required to halt" className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs outline-none focus:border-[#6e86ff]"/><button type="button" disabled={busy} onClick={toggleKill} className="dashboard-button-secondary disabled:opacity-50">{kill.enabled ? "Disable kill switch" : "Enable kill switch"}</button></div></section><div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]"><section className="dashboard-panel p-5"><h2 className="text-sm font-medium">Authorize simulated plan</h2><p className="mt-2 text-xs text-white/40">For demo type <code className="text-white/70">demo-authorized</code>; for Tempo type <code className="text-white/70">tempo-authorized</code>. Base requires a user-signed raw transaction; it is submitted but never stored.</p><form className="mt-4 space-y-3" onSubmit={execute}><label className="block text-xs text-white/55">Plan<select aria-label="Execution plan" value={selected} onChange={(event) => setSelected(event.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"><option value="">Select a simulated direct or approved intent</option>{executable.map((intent) => <option key={intent.id} value={intent.id}>{intent.sellAsset} → {intent.buyAsset} · {intent.amount} · {intent.plan?.venue}</option>)}</select></label><label className="block text-xs text-white/55">Explicit authorization<input aria-label="Explicit authorization" value={authorization} onChange={(event) => setAuthorization(event.target.value)} placeholder="demo-authorized, tempo-authorized, or raw transaction" className="mt-1 w-full rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"/></label><button disabled={busy || kill.enabled || !selected || !authorization} className="dashboard-button-primary disabled:opacity-50">{busy ? "Submitting…" : "Submit authorized execution"}</button></form></section><section className="dashboard-panel p-5"><h2 className="text-sm font-medium">Safety gate</h2><ul className="mt-4 space-y-3 text-xs leading-5 text-white/48"><li>• Successful simulation is mandatory.</li><li>• Authorization is required for every submission.</li><li>• Kill switch stops submissions but never hides history.</li><li>• Reorg and failure states stay visible for investigation.</li></ul></section></div><section className="dashboard-panel mt-5 overflow-hidden"><div className="border-b border-white/[.07] p-4"><h2 className="text-sm font-medium">Execution timeline</h2></div><div className="dashboard-table-wrap"><table className="dashboard-table"><thead><tr><th>Status</th><th>Route</th><th>Transaction</th><th>Expected output</th><th>Time</th></tr></thead><tbody>{executions.length ? executions.map((execution) => <tr key={execution.id}><td><span className="font-mono text-xs text-white/70">{execution.status}</span>{execution.failureReason && <p className="mt-1 text-[11px] text-rose-200">{execution.failureReason}</p>}</td><td>{execution.chain} · {execution.venue}</td><td className="max-w-[13rem] truncate font-mono text-[11px]">{execution.transactionHash ?? "—"}</td><td>{execution.expectedOut ?? "—"}</td><td>{new Date(execution.createdAt).toLocaleString()}</td></tr>) : <tr><td colSpan={5} className="text-white/35">No execution attempts yet.</td></tr>}</tbody></table></div></section><section className="dashboard-panel mt-5 p-5"><h2 className="text-sm font-medium">Webhook endpoints and delivery history</h2><form className="mt-4 flex flex-wrap gap-3" onSubmit={createWebhook}><input aria-label="Webhook URL" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://example.com/archon-webhook" className="min-w-[18rem] flex-1 rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"/><button disabled={busy || !webhookUrl} className="dashboard-button-secondary disabled:opacity-50">Add webhook</button></form><p className="mt-2 text-xs text-white/35">Outbound payloads are HMAC-signed when the server signing secret is configured.</p><div className="mt-5 grid gap-4 lg:grid-cols-2"><div><h3 className="text-xs font-medium text-white/55">Endpoints</h3><ul className="mt-2 space-y-2 text-xs text-white/48">{endpoints.length ? endpoints.map((endpoint) => <li key={endpoint.id} className="rounded border border-white/[.07] p-2">{endpoint.url}<br/><span className="text-white/30">{endpoint.events.join(", ")}</span></li>) : <li>No webhook endpoints.</li>}</ul></div><div><h3 className="text-xs font-medium text-white/55">Recent deliveries</h3><ul className="mt-2 space-y-2 text-xs text-white/48">{deliveries.length ? deliveries.slice(0, 10).map((delivery) => <li key={delivery.id} className="rounded border border-white/[.07] p-2"><span className="text-white/75">{delivery.eventType}</span> · {delivery.status}{delivery.responseCode ? ` · HTTP ${delivery.responseCode}` : ""}{delivery.error ? <p className="mt-1 text-rose-200">{delivery.error}</p> : null}</li>) : <li>No delivery history yet.</li>}</ul></div></div></section></>}</div>;
+  const [intents, setIntents] = useState<Intent[] | null>(null);
+  const [executions, setExecutions] = useState<Execution[] | null>(null);
+  const [kill, setKill] = useState<Kill | null>(null);
+  const [endpoints, setEndpoints] = useState<Endpoint[] | null>(null);
+  const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
+  const [selected, setSelected] = useState("");
+  const [authorization, setAuthorization] = useState("");
+  const [reason, setReason] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!activeOrgId()) return;
+    try {
+      const [
+        nextIntents,
+        nextExecutions,
+        nextKill,
+        nextEndpoints,
+        nextDeliveries,
+      ] = await Promise.all([
+        api<Intent[]>("/intents"),
+        api<Execution[]>("/executions"),
+        api<Kill>("/admin/kill-switch"),
+        api<Endpoint[]>("/webhooks"),
+        api<Delivery[]>("/webhooks/deliveries"),
+      ]);
+      setIntents(nextIntents);
+      setExecutions(nextExecutions);
+      setKill(nextKill);
+      setEndpoints(nextEndpoints);
+      setDeliveries(nextDeliveries);
+      setSelected(
+        (current) =>
+          current ||
+          nextIntents.find(
+            (intent) =>
+              intent.plan?.simOk &&
+              (intent.decision?.outcome === "DIRECT" ||
+                intent.status === "approved"),
+          )?.id ||
+          "",
+      );
+    } catch (cause) {
+      setError(notifyError(cause, "Could not load execution operations"));
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    window.addEventListener("archon:organization-changed", load);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("archon:organization-changed", load);
+    };
+  }, [load]);
+
+  const executable =
+    intents?.filter(
+      (intent) =>
+        intent.plan?.simOk &&
+        (intent.decision?.outcome === "DIRECT" || intent.status === "approved"),
+    ) ?? [];
+
+  async function execute(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<Execution>(`/intents/${selected}/execute`, {
+        method: "POST",
+        body: JSON.stringify({ authorization }),
+      });
+      notifySuccess("Execution submitted", result.status);
+      setAuthorization("");
+      await load();
+    } catch (cause) {
+      setError(notifyError(cause, "Execution was not submitted"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function toggleKill() {
+    const enabled = !kill?.enabled;
+    if (enabled && !reason.trim()) {
+      setError("Enter an operations reason before enabling the kill switch.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `${enabled ? "Enable" : "Disable"} the execution kill switch?`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api<Kill>("/admin/kill-switch", {
+        method: "POST",
+        body: JSON.stringify({ enabled, reason: reason.trim() || undefined }),
+      });
+      notifySuccess(enabled ? "Execution halted" : "Execution resumed");
+      setReason("");
+      await load();
+    } catch (cause) {
+      setError(notifyError(cause, "Could not update kill switch"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function createWebhook(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api("/webhooks", {
+        method: "POST",
+        body: JSON.stringify({
+          url: webhookUrl,
+          events: [
+            "execution.submitted",
+            "execution.confirmed",
+            "execution.failed",
+            "approval.resolved",
+          ],
+        }),
+      });
+      notifySuccess("Webhook endpoint created");
+      setWebhookUrl("");
+      await load();
+    } catch (cause) {
+      setError(notifyError(cause, "Could not create webhook"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const loading = !intents || !executions || !kill || !endpoints || !deliveries;
+  return (
+    <div className="mx-auto max-w-[1500px]">
+      <header>
+        <p className="dashboard-eyebrow">Authorized operations</p>
+        <h1 className="mt-2 text-3xl font-medium">Executions</h1>
+        <p className="mt-2 max-w-2xl text-sm text-white/42">
+          Archon never holds a signing key. A plan must be simulated, then
+          explicitly authorized by the caller before adapter submission.
+        </p>
+      </header>
+      {error && (
+        <p
+          role="alert"
+          className="mt-5 rounded-lg border border-rose-400/25 bg-rose-400/10 p-3 text-sm text-rose-200"
+        >
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p className="mt-7 text-sm text-white/35">
+          Loading execution operations…
+        </p>
+      ) : (
+        <>
+          <section
+            className={`mt-6 rounded-lg border p-4 ${kill.enabled ? "border-rose-400/35 bg-rose-400/10" : "border-emerald-400/20 bg-emerald-400/[.04]"}`}
+          >
+            <p className="font-medium">
+              {kill.enabled
+                ? "Execution kill switch is active"
+                : "Execution submission is enabled"}
+            </p>
+            <p className="mt-1 text-xs text-white/55">
+              {kill.reason ?? "No active operations restriction."}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <input
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Reason required to halt"
+                className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs outline-none focus:border-[#6e86ff]"
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={toggleKill}
+                className="dashboard-button-secondary disabled:opacity-50"
+              >
+                {kill.enabled ? "Disable kill switch" : "Enable kill switch"}
+              </button>
+            </div>
+          </section>
+          <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <section className="dashboard-panel p-5">
+              <h2 className="text-sm font-medium">Authorize simulated plan</h2>
+              <p className="mt-2 text-xs text-white/40">
+                For demo type{" "}
+                <code className="text-white/70">demo-authorized</code>; for
+                Tempo type{" "}
+                <code className="text-white/70">tempo-authorized</code>. Base
+                requires a user-signed raw transaction; it is submitted but
+                never stored.
+              </p>
+              <form className="mt-4 space-y-3" onSubmit={execute}>
+                <label className="block text-xs text-white/55">
+                  Plan
+                  <select
+                    aria-label="Execution plan"
+                    value={selected}
+                    onChange={(event) => setSelected(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"
+                  >
+                    <option value="">
+                      Select a simulated direct or approved intent
+                    </option>
+                    {executable.map((intent, index) => (
+                      <option
+                        key={`execution-plan-${intent.id}-${intent.plan?.id ?? index}`}
+                        value={intent.id}
+                      >
+                        {intent.sellAsset} → {intent.buyAsset} · {intent.amount}{" "}
+                        · {intent.plan?.venue}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs text-white/55">
+                  Explicit authorization
+                  <input
+                    aria-label="Explicit authorization"
+                    value={authorization}
+                    onChange={(event) => setAuthorization(event.target.value)}
+                    placeholder="demo-authorized, tempo-authorized, or raw transaction"
+                    className="mt-1 w-full rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"
+                  />
+                </label>
+                <button
+                  disabled={busy || kill.enabled || !selected || !authorization}
+                  className="dashboard-button-primary disabled:opacity-50"
+                >
+                  {busy ? "Submitting…" : "Submit authorized execution"}
+                </button>
+              </form>
+            </section>
+            <section className="dashboard-panel p-5">
+              <h2 className="text-sm font-medium">Safety gate</h2>
+              <ul className="mt-4 space-y-3 text-xs leading-5 text-white/48">
+                <li>• Successful simulation is mandatory.</li>
+                <li>• Authorization is required for every submission.</li>
+                <li>
+                  • Kill switch stops submissions but never hides history.
+                </li>
+                <li>
+                  • Reorg and failure states stay visible for investigation.
+                </li>
+              </ul>
+            </section>
+          </div>
+          <section className="dashboard-panel mt-5 overflow-hidden">
+            <div className="border-b border-white/[.07] p-4">
+              <h2 className="text-sm font-medium">Execution timeline</h2>
+              <p className="mt-1 text-xs text-white/35">
+                Sender, recipient, and receipt hash are retained as auditable execution evidence.
+              </p>
+            </div>
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Route</th>
+                    <th>Sender</th>
+                    <th>Recipient</th>
+                    <th>Receipt</th>
+                    <th>Expected output</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {executions.length ? (
+                    executions.map((execution) => {
+                      const recipient = execution.intent?.context?.facts?.recipient?.id;
+                      const explorer = execution.chain === "tempo" ? tempoExplorer : null;
+                      return <tr key={execution.id}>
+                        <td>
+                          <span className="font-mono text-xs text-white/70">
+                            {execution.status}
+                          </span>
+                          {execution.confirmedAt && (
+                            <p className="mt-1 text-[11px] text-emerald-200">
+                              Confirmed {new Date(execution.confirmedAt).toLocaleString()}
+                            </p>
+                          )}
+                          {execution.failureReason && (
+                            <p className="mt-1 text-[11px] text-rose-200">
+                              {execution.failureReason}
+                            </p>
+                          )}
+                        </td>
+                        <td>
+                          {execution.chain} · {execution.venue}
+                        </td>
+                        <td className="max-w-[11rem] truncate font-mono text-[11px]">
+                          {execution.signer && explorer ? <a href={`${explorer}/address/${execution.signer}`} target="_blank" rel="noreferrer" className="text-[#aebaff] underline">{execution.signer}</a> : execution.signer ?? "—"}
+                        </td>
+                        <td className="max-w-[11rem] truncate font-mono text-[11px]">
+                          {recipient && explorer ? <a href={`${explorer}/address/${recipient}`} target="_blank" rel="noreferrer" className="text-[#aebaff] underline">{recipient}</a> : recipient ?? "—"}
+                        </td>
+                        <td className="max-w-[13rem] truncate font-mono text-[11px]">
+                          {execution.transactionHash && explorer ? <a href={`${explorer}/tx/${execution.transactionHash}`} target="_blank" rel="noreferrer" className="text-[#aebaff] underline">{execution.transactionHash}</a> : execution.transactionHash ?? "—"}
+                        </td>
+                        <td>{execution.expectedOut ?? "—"}</td>
+                        <td>
+                          {new Date(execution.createdAt).toLocaleString()}
+                        </td>
+                      </tr>;
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="text-white/35">
+                        No execution attempts yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="dashboard-panel mt-5 p-5">
+            <h2 className="text-sm font-medium">
+              Webhook endpoints and delivery history
+            </h2>
+            <form
+              className="mt-4 flex flex-wrap gap-3"
+              onSubmit={createWebhook}
+            >
+              <input
+                aria-label="Webhook URL"
+                value={webhookUrl}
+                onChange={(event) => setWebhookUrl(event.target.value)}
+                placeholder="https://example.com/archon-webhook"
+                className="min-w-[18rem] flex-1 rounded-md border border-white/10 bg-white/[.03] px-3 py-2 text-sm outline-none focus:border-[#6e86ff]"
+              />
+              <button
+                disabled={busy || !webhookUrl}
+                className="dashboard-button-secondary disabled:opacity-50"
+              >
+                Add webhook
+              </button>
+            </form>
+            <p className="mt-2 text-xs text-white/35">
+              Outbound payloads are HMAC-signed when the server signing secret
+              is configured.
+            </p>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h3 className="text-xs font-medium text-white/55">Endpoints</h3>
+                <ul className="mt-2 space-y-2 text-xs text-white/48">
+                  {endpoints.length ? (
+                    endpoints.map((endpoint) => (
+                      <li
+                        key={endpoint.id}
+                        className="rounded border border-white/[.07] p-2"
+                      >
+                        {endpoint.url}
+                        <br />
+                        <span className="text-white/30">
+                          {endpoint.events.join(", ")}
+                        </span>
+                      </li>
+                    ))
+                  ) : (
+                    <li>No webhook endpoints.</li>
+                  )}
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-xs font-medium text-white/55">
+                  Recent deliveries
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs text-white/48">
+                  {deliveries.length ? (
+                    deliveries.slice(0, 10).map((delivery) => (
+                      <li
+                        key={delivery.id}
+                        className="rounded border border-white/[.07] p-2"
+                      >
+                        <span className="text-white/75">
+                          {delivery.eventType}
+                        </span>{" "}
+                        · {delivery.status}
+                        {delivery.responseCode
+                          ? ` · HTTP ${delivery.responseCode}`
+                          : ""}
+                        {delivery.error ? (
+                          <p className="mt-1 text-rose-200">{delivery.error}</p>
+                        ) : null}
+                      </li>
+                    ))
+                  ) : (
+                    <li>No delivery history yet.</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
 }

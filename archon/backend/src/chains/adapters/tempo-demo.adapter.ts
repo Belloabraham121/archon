@@ -11,10 +11,11 @@ export class TempoDemoAdapter implements ChainAdapter {
 
   async getBalances(account: string, assets: string[]) { return Object.fromEntries(assets.map((asset) => [`${account}:${asset}`, '1000000000'])); }
   async collectQuotes(params: { sellAsset: string; buyAsset: string; amount: string }): Promise<Quote[]> {
-    if (!['USDC', 'USDT'].includes(params.sellAsset) || !['USDC', 'USDT'].includes(params.buyAsset) || params.sellAsset === params.buyAsset || !/^\d+(\.\d+)?$/.test(params.amount)) return [];
+    if (!['USDC', 'USDT', 'pathUSD'].includes(params.sellAsset) || !['USDC', 'USDT', 'pathUSD'].includes(params.buyAsset) || !/^\d+(\.\d+)?$/.test(params.amount)) return [];
     const amount = Number(params.amount);
     if (!Number.isFinite(amount) || amount <= 0) return [];
-    return [{ venue: this.venue, chain: this.chain, sellAsset: params.sellAsset, buyAsset: params.buyAsset, amountIn: params.amount, amountOut: (amount * 0.999).toFixed(6), priceImpactBps: 0, feeBps: 10, routeDepth: 1, expiresAt: new Date(Date.now() + 45_000).toISOString() }];
+    const sameAsset = params.sellAsset === params.buyAsset;
+    return [{ venue: this.venue, chain: this.chain, sellAsset: params.sellAsset, buyAsset: params.buyAsset, amountIn: params.amount, amountOut: (amount * (sameAsset ? 1 : 0.999)).toFixed(6), priceImpactBps: 0, feeBps: sameAsset ? 0 : 10, routeDepth: 1, expiresAt: new Date(Date.now() + 45_000).toISOString() }];
   }
   async estimateFees() { return { gas: 'settlement-fee', totalFeeBps: 10 }; }
   async buildPlan(decision: unknown) { const quote = (decision as { selectedQuote?: Quote } | null)?.selectedQuote; if (!quote) throw new Error('Tempo plan needs a selected quote'); return { venue: this.venue, settlement: 'fixed-price', quote, quoteExpiresAt: quote.expiresAt }; }

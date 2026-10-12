@@ -3,16 +3,34 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_POLICY_NAME, DEFAULT_RULES, PolicyRules, effectiveConstraints, nextVersionNumber, validateRules } from './rules';
 
+const SAMPLE_POLICIES: Array<{ name: string; rules: PolicyRules }> = [
+  { name: 'Sample — Agent payments', rules: { maximum_amount: '1000', custom_rules: [{ name: 'Unapproved recipient', field: 'recipient.allowlisted', operator: 'not_equals', value: true, outcome: 'BLOCK', reason: 'Payments require an allowlisted recipient.' }, { name: 'High payment risk', field: 'metadata.riskScore', operator: 'greater_than', value: 70, outcome: 'REVIEW', reason: 'High-risk payments require human approval.' }] } },
+  { name: 'Sample — Treasury rebalance', rules: { maximum_amount: '25000', maximum_slippage_bps: 50, custom_rules: [{ name: 'Rebalance only', field: 'metadata.action', operator: 'not_equals', value: 'rebalance', outcome: 'BLOCK', reason: 'This policy is reserved for treasury rebalancing.' }] } },
+  { name: 'Sample — Asset swaps', rules: { maximum_amount: '5000', maximum_slippage_bps: 75, maximum_fee_bps: 100, custom_rules: [{ name: 'Swap only', field: 'metadata.action', operator: 'not_equals', value: 'swap', outcome: 'BLOCK', reason: 'This policy is reserved for asset swaps.' }] } },
+  { name: 'Sample — Agent transfers', rules: { maximum_amount: '2000', custom_rules: [{ name: 'Transfer only', field: 'metadata.action', operator: 'not_equals', value: 'transfer', outcome: 'BLOCK', reason: 'This policy is reserved for transfers.' }] } },
+  { name: 'Sample — Controlled withdrawals', rules: { maximum_amount: '500', custom_rules: [{ name: 'Withdrawal only', field: 'metadata.action', operator: 'not_equals', value: 'withdraw', outcome: 'BLOCK', reason: 'This policy is reserved for withdrawals.' }, { name: 'Withdrawal review', field: 'actor.tier', operator: 'not_equals', value: 'premium', outcome: 'REVIEW', reason: 'Withdrawals by non-premium agents require approval.' }] } },
+];
+
 @Injectable()
 export class PoliciesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string, environment: string) {
+    await this.ensureSamplePolicies(organizationId, environment);
     return this.prisma.policy.findMany({
       where: { organizationId, environment },
       include: { versions: { orderBy: { version: 'desc' } } },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /** New workspaces start with editable, unpublished examples. They never affect live decisions until an operator publishes one. */
+  private async ensureSamplePolicies(organizationId: string, environment: string) {
+    await Promise.all(SAMPLE_POLICIES.map(({ name, rules }) => this.prisma.policy.upsert({
+      where: { organizationId_environment_name: { organizationId, environment, name } },
+      create: { organizationId, environment, name, versions: { create: { version: 1, status: 'draft', rules: rules as unknown as Prisma.InputJsonValue } } },
+      update: {},
+    })));
   }
 
   async create(organizationId: string, environment: string, name: string) {
@@ -36,6 +54,15 @@ export class PoliciesService {
       throw new ForbiddenException('Policy belongs to another organization or environment');
     }
     return policy;
+  }
+
+  /** Delete only unused policy books; decision evidence must remain immutable. */
+  async remove(organizationId: string, environment: string, policyId: string) {
+    const policy = await this.get(organizationId, environment, policyId);
+    const decisionCount = await this.prisma.decision.count({ where: { policyVersion: { policyId: policy.id } } });
+    if (decisionCount > 0) throw new ConflictException('This policy is referenced by decision evidence and cannot be deleted. Keep it for audit history.');
+    await this.prisma.policy.delete({ where: { id: policy.id } });
+    return { id: policy.id, deleted: true };
   }
 
   /** New immutable draft version. Published versions can never be edited. */
@@ -66,6 +93,14 @@ export class PoliciesService {
     return policy.versions.filter((v) => v.status === 'published').sort((a, b) => b.version - a.version)[0] ?? null;
   }
 
+  async publishedRules(organizationId: string, environment: string, policyVersionId: string): Promise<{ policyVersionId: string; rules: PolicyRules }> {
+    const version = await this.prisma.policyVersion.findFirst({
+      where: { id: policyVersionId, status: 'published', policy: { organizationId, environment } },
+    });
+    if (!version) throw new NotFoundException('Published policy version not found for this organization and environment');
+    return { policyVersionId: version.id, rules: { ...DEFAULT_RULES, ...((version.rules ?? {}) as PolicyRules) } };
+  }
+
   /**
    * Rules + version id the intent pipeline evaluates under. Ensures the
    * default policy exists (preserving Phase 2 behavior for existing orgs).
@@ -76,8 +111,25 @@ export class PoliciesService {
     const active = await this.prisma.policyVersion.findFirst({
       where: { status: 'published', policy: { organizationId, environment } },
       orderBy: { publishedAt: 'desc' },
+      include: { policy: { select: { name: true } } },
     });
-    if (active) return { policyVersionId: active.id, rules: (active.rules ?? {}) as PolicyRules };
+    if (active) {
+      const rules = { ...DEFAULT_RULES, ...((active.rules ?? {}) as PolicyRules) };
+      // Existing workspaces may have seeded the built-in policy before Tempo
+      // payments became a registered demo venue. Keep operator-authored
+      // policies immutable, but make the legacy built-in default forward
+      // compatible with the current registered venue set.
+      if (active.policy.name === DEFAULT_POLICY_NAME) {
+        return {
+          policyVersionId: active.id,
+          rules: {
+            ...rules,
+            approved_venues: [...new Set([...(rules.approved_venues ?? DEFAULT_RULES.approved_venues), 'tempo-payments'])],
+          },
+        };
+      }
+      return { policyVersionId: active.id, rules };
+    }
 
     let policy = await this.prisma.policy.findUnique({
       where: { organizationId_environment_name: { organizationId, environment, name: DEFAULT_POLICY_NAME } },

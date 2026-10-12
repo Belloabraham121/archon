@@ -6,6 +6,7 @@ import { TenancyService } from '../tenancy/tenancy.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { ExecuteIntentDto } from './dto/execute-intent.dto';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { RpcBroadcasterService } from './rpc-broadcaster.service';
 
 export type ObservedExecutionStatus = 'pending' | 'confirmed' | 'failed' | 'reorged';
 
@@ -18,12 +19,14 @@ export function transitionExecutionStatus(status: ObservedExecutionStatus) {
 
 @Injectable()
 export class ExecutionService {
-  constructor(private readonly prisma: PrismaService, private readonly chains: ChainsService, private readonly tenancy: TenancyService, private readonly webhooks: WebhooksService, private readonly connectors: ConnectorsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly chains: ChainsService, private readonly tenancy: TenancyService, private readonly webhooks: WebhooksService, private readonly connectors: ConnectorsService, private readonly rpc: RpcBroadcasterService) {}
 
   async execute(organizationId: string, environment: string, userId: string, intentId: string, dto: ExecuteIntentDto) {
     const kill = await this.killSwitch(organizationId, environment);
     if (kill.enabled) throw new ForbiddenException(`Execution is halted by the kill switch${kill.reason ? `: ${kill.reason}` : ''}`);
-    if (!dto.authorization.trim()) throw new BadRequestException('Explicit signed authorization is required before submission');
+    const authorization = dto.authorization?.trim();
+    const externalHash = dto.transactionHash?.trim();
+    if (!authorization && !externalHash) throw new BadRequestException('Explicit signed authorization or a broadcast transaction hash is required before submission');
     const intent = await this.prisma.executionIntent.findFirst({ where: { id: intentId, organizationId, environment }, include: { decision: true, plan: true, approvals: { orderBy: { createdAt: 'desc' }, take: 1 } } });
     if (!intent) throw new NotFoundException('Intent not found');
     if (intent.chain === 'demo' && environment !== 'test') throw new ForbiddenException('The deterministic demo adapter is only available in the test environment');
@@ -33,12 +36,17 @@ export class ExecutionService {
     const allowed = intent.decision?.outcome === 'DIRECT' || approval?.status === 'approved';
     if (!allowed) throw new ForbiddenException('This intent requires an approved authorization before execution');
     if (this.planExpired(intent.plan.plan)) throw new BadRequestException('Execution plan quote expired — requote and simulate again');
-    const authorizationHash = createHash('sha256').update(dto.authorization).digest('hex');
+    const authorizationHash = createHash('sha256').update(authorization ?? externalHash!).digest('hex');
     const adapter = this.chains.get(intent.plan.chain, intent.plan.venue);
     const attempt = await this.prisma.executionAttempt.create({ data: { organizationId, environment, intentId: intent.id, planId: intent.plan.id, venue: intent.plan.venue, chain: intent.plan.chain, signer: dto.signer ?? userId, authorizationHash, expectedOut: intent.plan.expectedOut } });
     try {
-      const submitted = await adapter.submitAuthorizedTransaction(['demo', 'tempo'].includes(intent.chain) ? { authorization: dto.authorization, signer: dto.signer ?? userId } : { rawTransaction: dto.authorization });
-      const observed = this.toObservedStatus(await adapter.getExecutionStatus(submitted.hash));
+      const rawTransaction = Boolean(authorization && /^0x[0-9a-fA-F]+$/.test(authorization));
+      const submitted = externalHash
+        ? { hash: externalHash }
+        : rawTransaction
+          ? await this.rpc.broadcast(intent.chain, authorization!)
+          : await adapter.submitAuthorizedTransaction(['demo', 'tempo'].includes(intent.chain) ? { authorization, signer: dto.signer ?? userId } : { rawTransaction: authorization });
+      const observed = this.toObservedStatus((externalHash || rawTransaction) ? await this.rpc.status(intent.chain, submitted.hash) : await adapter.getExecutionStatus(submitted.hash));
       const execution = await this.prisma.$transaction(async (tx) => {
         const updated = await tx.executionAttempt.update({ where: { id: attempt.id }, data: { transactionHash: submitted.hash, submittedAt: new Date(), ...transitionExecutionStatus(observed) } });
         const submittedEvent = { type: 'execution.submitted', organizationId, environment, intentId: intent.id, payload: { executionId: updated.id, transactionHash: submitted.hash, venue: updated.venue } };
@@ -59,14 +67,14 @@ export class ExecutionService {
     }
   }
 
-  async get(organizationId: string, environment: string, id: string) { const execution = await this.prisma.executionAttempt.findFirst({ where: { id, organizationId, environment }, include: { intent: { include: { decision: true, plan: true } } } }); if (!execution) throw new NotFoundException('Execution not found'); return execution; }
-  async list(organizationId: string, environment: string) { return this.prisma.executionAttempt.findMany({ where: { organizationId, environment }, include: { intent: { include: { decision: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }); }
+  async get(organizationId: string, environment: string, id: string) { const execution = await this.prisma.executionAttempt.findFirst({ where: { id, organizationId, environment }, include: { intent: { include: { decision: true, plan: true, context: true } } } }); if (!execution) throw new NotFoundException('Execution not found'); return execution; }
+  async list(organizationId: string, environment: string) { return this.prisma.executionAttempt.findMany({ where: { organizationId, environment }, include: { intent: { include: { decision: true, context: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }); }
 
   async refresh(organizationId: string, environment: string, id: string) {
     const execution = await this.get(organizationId, environment, id);
     if (!execution.transactionHash) return execution;
     const adapter = this.chains.get(execution.chain, execution.venue);
-    const observed = this.toObservedStatus(await adapter.getExecutionStatus(execution.transactionHash));
+    const observed = this.toObservedStatus(execution.transactionHash.startsWith('0x') && this.rpc.supports(execution.chain) ? await this.rpc.status(execution.chain, execution.transactionHash) : await adapter.getExecutionStatus(execution.transactionHash));
     // A receipt that disappears after a recorded confirmation is evidence of a
     // reorganization, even though an RPC reports the current observation as pending.
     const transition = execution.status === 'confirmed' && observed === 'pending' ? 'reorged' : observed;

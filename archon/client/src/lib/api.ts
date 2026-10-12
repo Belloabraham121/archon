@@ -71,3 +71,31 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+export async function apiWithKey<T>(
+  path: string,
+  apiKey: string,
+  organizationId: string,
+  environment: ArchonEnvironment,
+  init?: RequestInit,
+): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
+  const res = await fetch(`${API_URL}/v1${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "x-organization-id": organizationId,
+      "x-environment": environment,
+      ...(mutating ? { "Idempotency-Key": crypto.randomUUID() } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = (body as { message?: string | string[] }).message ?? `Request failed (${res.status})`;
+    throw new Error(Array.isArray(message) ? message.join(", ") : message);
+  }
+  return body as T;
+}
