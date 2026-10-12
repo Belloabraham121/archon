@@ -6,12 +6,23 @@ export interface PolicyRules {
   maximum_slippage_bps?: number;
   maximum_fee_bps?: number;
   maximum_amount?: string;
+  custom_rules?: Array<{ name: string; field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'includes' | 'exists'; value?: string | number | boolean; outcome: 'BLOCK' | 'REVIEW'; reason: string }>;
+}
+
+export function evaluateCustomRules(rules: PolicyRules, facts: Record<string, unknown>) {
+  for (const rule of rules.custom_rules ?? []) {
+    const actual = rule.field.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, facts);
+    const expected = rule.value; const numeric = Number(actual); const target = Number(expected);
+    const matched = rule.operator === 'exists' ? actual !== undefined && actual !== null : rule.operator === 'equals' ? String(actual) === String(expected) : rule.operator === 'not_equals' ? String(actual) !== String(expected) : rule.operator === 'greater_than' ? Number.isFinite(numeric) && numeric > target : rule.operator === 'less_than' ? Number.isFinite(numeric) && numeric < target : rule.operator === 'includes' ? Array.isArray(actual) ? actual.map(String).includes(String(expected)) : String(actual ?? '').includes(String(expected)) : false;
+    if (matched) return { outcome: rule.outcome, reason: rule.reason || rule.name };
+  }
+  return null;
 }
 
 export const DEFAULT_POLICY_NAME = 'Deterministic routing v0';
 
 export const DEFAULT_RULES: Required<Pick<PolicyRules, 'approved_venues' | 'maximum_slippage_bps' | 'maximum_fee_bps'>> = {
-  approved_venues: ['demo-amm', 'demo-rfq', '0x', 'odos'],
+  approved_venues: ['demo-amm', 'demo-rfq', 'tempo-payments', '0x', 'odos'],
   maximum_slippage_bps: 100,
   maximum_fee_bps: 100,
 };
@@ -57,6 +68,7 @@ export function validateRules(rules: unknown): asserts rules is PolicyRules {
   if (r.maximum_amount !== undefined && (typeof r.maximum_amount !== 'string' || !POSITIVE_DECIMAL.test(r.maximum_amount))) {
     throw new BadRequestException('maximum_amount must be a positive decimal string');
   }
+  if (r.custom_rules !== undefined && (!Array.isArray(r.custom_rules) || r.custom_rules.some((rule) => !rule || typeof rule !== 'object' || typeof (rule as Record<string, unknown>).field !== 'string' || !['equals', 'not_equals', 'greater_than', 'less_than', 'includes', 'exists'].includes(String((rule as Record<string, unknown>).operator)) || !['BLOCK', 'REVIEW'].includes(String((rule as Record<string, unknown>).outcome)) || typeof (rule as Record<string, unknown>).reason !== 'string'))) throw new BadRequestException('custom_rules must contain valid conditions and outcomes');
 }
 
 /**
@@ -80,6 +92,14 @@ export function effectiveConstraints(
     merged.maximum_amount = policyRules.maximum_amount && compareDecimals(policyRules.maximum_amount, intentConstraints.maximum_amount) < 0
       ? policyRules.maximum_amount
       : intentConstraints.maximum_amount;
+  }
+  // An intent may add stricter BLOCK/REVIEW conditions, but it can never
+  // remove the operator's published rules or introduce an allowing outcome.
+  if (intentConstraints.custom_rules?.length) {
+    merged.custom_rules = [
+      ...(policyRules.custom_rules ?? []),
+      ...intentConstraints.custom_rules,
+    ];
   }
   return merged;
 }

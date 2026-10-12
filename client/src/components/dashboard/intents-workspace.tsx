@@ -100,6 +100,7 @@ const VENUES_BY_CHAIN: Record<string, string[]> = {
 };
 
 export function IntentsWorkspace() {
+  const [intentType, setIntentType] = useState<"swap" | "rebalance" | "pay" | "transfer" | "withdraw">("swap");
   const [items, setItems] = useState<IntentResult[] | null>(null);
   const [selected, setSelected] = useState<IntentResult | null>(null);
   const [error, setError] = useState("");
@@ -246,6 +247,10 @@ export function IntentsWorkspace() {
     }
     const form = new FormData(event.currentTarget);
     const chain = String(form.get("chain") || "demo");
+    const type = String(form.get("type") || "swap");
+    const asset = String(form.get("asset") || form.get("sellAsset") || "USDC");
+    const sellAsset = type === "swap" || type === "rebalance" ? String(form.get("sellAsset")) : asset;
+    const buyAsset = type === "swap" || type === "rebalance" ? String(form.get("buyAsset")) : asset;
     setSubmitting(true);
     setError("");
     try {
@@ -253,15 +258,18 @@ export function IntentsWorkspace() {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
-          type: "swap",
+          type,
           chain,
-          sell_asset: String(form.get("sellAsset")),
-          buy_asset: String(form.get("buyAsset")),
+          sell_asset: sellAsset,
+          buy_asset: buyAsset,
           amount: String(form.get("amount")),
           constraints: {
             maximum_slippage_bps: Number(form.get("maximumSlippageBps")),
             approved_venues: VENUES_BY_CHAIN[chain] ?? VENUES_BY_CHAIN.demo,
           },
+          actor: { id: String(form.get("actorId") || "dashboard-user"), type: String(form.get("actorType") || "user"), tier: String(form.get("actorTier") || "standard") },
+          recipient: String(form.get("recipientId") || "") ? { id: String(form.get("recipientId")), allowlisted: form.get("recipientAllowlisted") === "on" } : undefined,
+          metadata: { riskScore: Number(form.get("riskScore") || 0), dailyVolumeUsd: Number(form.get("dailyVolumeUsd") || 0), actionDetails: { destination: String(form.get("recipientId") || ""), memo: String(form.get("memo") || ""), targetAllocation: String(form.get("targetAllocation") || ""), reserveAmount: String(form.get("reserveAmount") || "") } },
         }),
       });
       setItems((current) => [result, ...(current ?? []).filter((item) => item.intent.id !== result.intent.id)]);
@@ -316,7 +324,7 @@ export function IntentsWorkspace() {
       <header>
         <p className="dashboard-eyebrow">Deterministic routing + bounded judgment</p>
         <h1 className="mt-2 text-2xl font-medium tracking-[-.035em] sm:text-3xl">Live intents</h1>
-        <p className="mt-2 max-w-2xl text-sm text-white/42">Submit a normalized swap and inspect the quotes, context hash, policy evidence, judgment, simulation, and selected route.</p>
+        <p className="mt-2 max-w-2xl text-sm text-white/42">Design an intent with the actor and risk context your policy evaluates, then inspect its quotes, decision evidence, judgment, and simulation.</p>
         {metrics && metrics.total > 0 && (
           <p className="mt-3 font-mono text-[11px] text-white/35" aria-live="polite">
             Jev (7d): {Math.round(metrics.escalationRate * 100)}% escalated · {Math.round(metrics.fallbackRate * 100)}% fallback{metrics.avgLatencyMs != null ? ` · ${Math.round(metrics.avgLatencyMs)}ms avg` : ""}{metrics.rateLimited ? ` · ${metrics.rateLimited} rate-limited` : ""}
@@ -325,22 +333,21 @@ export function IntentsWorkspace() {
       </header>
 
       <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(300px,.65fr)_minmax(0,1.35fr)]">
-        <form onSubmit={submit} className="dashboard-panel overflow-hidden" aria-label="Create swap intent">
+        <form onSubmit={submit} className="dashboard-panel overflow-hidden" aria-label="Create custom intent">
           <div className="border-b border-white/[.07] px-5 py-5">
             <p className="dashboard-eyebrow">New intent</p>
-            <h2 className="mt-2 text-lg font-medium">Compare venues</h2>
-            <p className="mt-2 text-xs leading-5 text-white/35">Describe the swap and Archon will compare the venue adapters for that chain.</p>
+            <h2 className="mt-2 text-lg font-medium">Design an intent</h2>
+            <p className="mt-2 text-xs leading-5 text-white/35">Describe the action and its actor context. Policies deterministically allow, block, or require review before route selection.</p>
           </div>
           <fieldset className="space-y-5 p-5" disabled={submitting}>
-            <legend className="sr-only">Swap details</legend>
+            <legend className="sr-only">Intent details</legend>
+            <label className="block"><span className="text-xs font-medium text-white/68">Action</span><select name="type" value={intentType} onChange={(event) => setIntentType(event.target.value as typeof intentType)} className="mt-2 w-full rounded-lg border border-white/[.09] bg-[#111313] px-3 py-3 text-sm text-white outline-none focus:border-[#6e86ff]"><option value="swap">Swap — exchange one asset for another</option><option value="rebalance">Rebalance — move toward a target allocation</option><option value="pay">Pay — send an asset to a merchant</option><option value="transfer">Transfer — move an asset to a wallet</option><option value="withdraw">Withdraw — move funds out while preserving a reserve</option></select></label>
             <AssetField label="Chain" name="chain" defaultValue="demo" options={["demo", "base", "tempo"]} />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AssetField label="Sell asset" name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} />
-              <AssetField label="Buy asset" name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL", "USDT"]} />
-            </div>
-            <p className="-mt-2 text-[11px] leading-5 text-white/30">Tempo is a contrasting deterministic payment adapter: select USDC → USDT to exercise its fixed-price route.</p>
-            <Field label="Amount" hint="Enter the amount in sell-asset units." name="amount" defaultValue="1000" inputMode="decimal" />
+            {(intentType === "swap" || intentType === "rebalance") ? <><div className="grid gap-4 sm:grid-cols-2"><AssetField label={intentType === "rebalance" ? "Source asset" : "Sell asset"} name="sellAsset" defaultValue="USDC" options={["USDC", "USDT", "DAI"]} /><AssetField label={intentType === "rebalance" ? "Target asset" : "Buy asset"} name="buyAsset" defaultValue="ETH" options={["ETH", "WBTC", "SOL", "USDT"]} /></div>{intentType === "rebalance" && <Field label="Target allocation" hint="For example: USDC 50%, ETH 30%, WBTC 20%." name="targetAllocation" defaultValue="USDC 50%, ETH 30%, WBTC 20%" />}</> : <><AssetField label="Asset" name="asset" defaultValue="USDC" options={["USDC", "USDT", "DAI", "ETH"]} /><Field label={intentType === "pay" ? "Payment reference" : intentType === "withdraw" ? "Destination account" : "Destination wallet"} hint={intentType === "pay" ? "Invoice or merchant reference." : "The policy can require this recipient to be allowlisted."} name="memo" defaultValue="" />{intentType === "withdraw" && <Field label="Minimum reserve" hint="Amount that must remain after the withdrawal." name="reserveAmount" defaultValue="10000" inputMode="decimal" />}</>}
+            <p className="-mt-2 text-[11px] leading-5 text-white/30">Tempo demo supports USDC → USDT route comparison. Pay, transfer, withdrawal, and rebalance currently evaluate policy context and require review before a dedicated execution adapter is added.</p>
+            <Field label="Amount" hint="Enter the amount in the action asset units." name="amount" defaultValue="1000" inputMode="decimal" />
             <Field label="Maximum slippage" hint="Basis points (50 bps = 0.50%)." name="maximumSlippageBps" defaultValue="50" inputMode="numeric" suffix="bps" />
+            <fieldset className="rounded-lg border border-[#6e86ff]/20 bg-[#6e86ff]/[.04] p-4"><legend className="px-1 text-xs font-medium text-[#c4cbff]">Actor and policy context</legend><p className="mb-3 text-[11px] leading-5 text-white/40">These facts are saved in the immutable context snapshot and evaluated by your custom policy rules.</p><div className="grid gap-3 sm:grid-cols-2"><Field label="Actor ID" hint="User, wallet, or agent identifier." name="actorId" defaultValue="dashboard-user" /><AssetField label="Actor type" name="actorType" defaultValue="user" options={["user", "agent", "application"]} /><AssetField label="Actor tier" name="actorTier" defaultValue="standard" options={["basic", "standard", "premium"]} /><Field label="Risk score" hint="Your application risk value." name="riskScore" defaultValue="0" inputMode="numeric" /><Field label="Daily volume (USD)" hint="Your current rolling volume." name="dailyVolumeUsd" defaultValue="0" inputMode="decimal" /><Field label="Recipient ID" hint="Optional merchant, wallet, or destination." name="recipientId" defaultValue="" /></div><label className="mt-3 flex items-center gap-2 text-xs text-white/60"><input type="checkbox" name="recipientAllowlisted" defaultChecked />Recipient is allowlisted</label></fieldset>
           {error && <p role="alert" className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
             {organizationId === null && (
               <button

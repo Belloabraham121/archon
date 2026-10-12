@@ -11,3 +11,12 @@ test('Tempo adapter accepts the normalized payment intent and requires explicit 
   const submitted = await adapter.submitAuthorizedTransaction({ authorization: 'tempo-authorized' });
   assert.equal(await adapter.getExecutionStatus(submitted.hash), 'confirmed');
 });
+
+test('Tempo adapter quotes same-asset payment transfers', async () => {
+  const adapter = new TempoDemoAdapter();
+  const quotes = await adapter.collectQuotes({ sellAsset: 'USDC', buyAsset: 'USDC', amount: '25' });
+  assert.equal(quotes.length, 1);
+  assert.equal(quotes[0].venue, 'tempo-payments');
+  assert.equal(quotes[0].amountOut, '25.000000');
+  assert.equal(quotes[0].feeBps, 0);
+});

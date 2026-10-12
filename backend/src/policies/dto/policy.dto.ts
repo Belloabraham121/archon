@@ -28,6 +28,9 @@ export class PolicyRulesDto {
   @Matches(/^(?=.*[1-9])\d+(\.\d+)?$/, { message: 'maximum_amount must be a positive decimal string' })
   @IsOptional()
   maximum_amount?: string;
+
+  @ApiPropertyOptional({ example: [{ name: 'Block basic withdrawals', field: 'actor.tier', operator: 'equals', value: 'basic', outcome: 'BLOCK', reason: 'Basic tier cannot withdraw funds' }] })
+  @IsArray() @IsOptional() custom_rules?: Array<{ name: string; field: string; operator: string; value?: string | number | boolean; outcome: string; reason: string }>;
 }
 
 export class CreatePolicyDto {
