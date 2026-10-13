@@ -1,8 +1,0 @@
-{
-  "name": "@incantly/tiptap",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "peerDependencies": { "@tiptap/core": ">=2", "@tiptap/react": ">=2", "react": ">=18" }
-}

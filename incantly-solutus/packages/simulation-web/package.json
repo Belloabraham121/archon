@@ -1,8 +1,0 @@
-{
-  "name": "@incantly/simulation-web",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@incantly/scene": "0.1.0" }
-}
