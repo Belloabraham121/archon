@@ -39,14 +39,15 @@ export class AnalyticsService {
   }
 
   async overview(organizationId: string, environment: string) {
-    const [intents, decisions, executions, approvals, connectors] = await Promise.all([
+    const [intents, decisions, executionTotal, executions, approvals, connectors] = await Promise.all([
       this.prisma.executionIntent.count({ where: { organizationId, environment } }),
       this.prisma.decision.count({ where: { organizationId, environment } }),
+      this.prisma.executionAttempt.count({ where: { organizationId, environment } }),
       this.prisma.executionAttempt.findMany({ where: { organizationId, environment }, orderBy: { createdAt: 'desc' }, take: 8 }),
       this.prisma.approval.count({ where: { organizationId, environment, status: 'pending' } }),
       this.prisma.connectorSetting.count({ where: { organizationId, environment, enabled: false } }),
     ]);
-    return { intents, decisions, approvalsPending: approvals, connectorsDisabled: connectors, executions: { total: executions.length, confirmed: executions.filter((item) => item.status === 'confirmed').length, failed: executions.filter((item) => item.status === 'failed').length, recent: executions } };
+    return { intents, decisions, approvalsPending: approvals, connectorsDisabled: connectors, executions: { total: executionTotal, confirmed: executions.filter((item) => item.status === 'confirmed').length, failed: executions.filter((item) => item.status === 'failed').length, recent: executions } };
   }
 
   async operationsTrends(organizationId: string, environment: string, requestedHours: number) {
