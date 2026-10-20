@@ -1,0 +1,24 @@
+{
+  "name": "@incantly/playground",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "tsc --noEmit && vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@incantly/sdk": "0.1.0",
+    "@incantly/audio-web": "0.1.0",
+    "@incantly/simulation-web": "0.1.0",
+    "@incantly/tiptap": "0.1.0",
+    "@tiptap/core": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "typescript": "^5.7.3"
+  }
+}

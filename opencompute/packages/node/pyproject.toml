@@ -1,0 +1,30 @@
+[project]
+name = "opencompute-node"
+version = "0.1.0"
+description = "Decentralized AI compute node: worker + validator"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.0",
+  "websockets>=12.0",
+  "psutil>=5.9",
+  "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+# Heavy ML stack — worker/validator only. Relay stays light.
+ml = [
+  "torch",
+  "transformers",
+  "peft",
+  "accelerate",
+]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+node = "node.main:cli"
+
+[tool.setuptools.packages.find]
+include = ["node*"]
+
+[tool.ruff]
+line-length = 100
