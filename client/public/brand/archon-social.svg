@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Archon</title>
+  <defs>
+    <linearGradient id="warm-background" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3a362e" offset="0"/>
+      <stop stop-color="#26241f" offset=".53"/>
+      <stop stop-color="#1f1d19" offset="1"/>
+    </linearGradient>
+    <radialGradient id="upper-bone" cx="0" cy="0" r="530" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e3dac9" offset="0"/>
+      <stop stop-color="#8e806a" offset=".39"/>
+      <stop stop-color="#353129" offset="1"/>
+    </radialGradient>
+    <linearGradient id="diagonal-band" x1="245" x2="627" y1="702" y2="1090" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#423d34" offset="0"/>
+      <stop stop-color="#2d2a24" offset=".65"/>
+      <stop stop-color="#6f6555" offset="1"/>
+    </linearGradient>
+    <radialGradient id="lower-bone" cx="1052" cy="1026" r="626" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e3dac9" offset="0"/>
+      <stop stop-color="#c8baa2" offset=".25"/>
+      <stop stop-color="#6f6555" offset=".59"/>
+      <stop stop-color="#2d2a24" offset="1"/>
+    </radialGradient>
+    <linearGradient id="canvas-mark" x1="120" x2="265" y1="346" y2="563" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf8" offset="0"/>
+      <stop stop-color="#f5efe4" offset=".52"/>
+      <stop stop-color="#fffdf8" offset="1"/>
+    </linearGradient>
+    <linearGradient id="bone-mark" x1="87" x2="308" y1="487" y2="452" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e3dac9" offset="0"/>
+      <stop stop-color="#d8ccb8" offset=".55"/>
+      <stop stop-color="#c8baa2" offset="1"/>
+    </linearGradient>
+    <linearGradient id="letter-canvas" x2="0" y1="372" y2="517" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf8" offset="0"/>
+      <stop stop-color="#f5efe4" offset="1"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect width="1024" height="1024" fill="url(#warm-background)"/>
+    <path d="M0 0H464L0 323Z" fill="url(#upper-bone)"/>
+    <path d="M0 891L1024 205V1024H0Z" fill="url(#diagonal-band)" opacity=".52"/>
+    <path d="m365 1024 659-451v451z" fill="url(#lower-bone)"/>
+  </g>
+  <g stroke="#171612" stroke-linejoin="round" stroke-width="3">
+    <path d="m84 451v-33q-1-13 11-20l86-53q11-8 23-2l50 27q13 7 13 19v33q0 6-6 3l-66-31-104 63q-7 3-7-6z" fill="url(#canvas-mark)"/>
+    <path d="m95 484 112-66q12-8 22-3l76 37q10 4 10 14v31q-1 14-12 8l-82-40-82 49v22q0 7-8 3l-33-17q-15-7-14-20-1-11 11-18z" fill="url(#bone-mark)"/>
+    <path d="m173 529 76-45 41 20q9 4 1 10l-85 52q-11 7-22 1l-12-6q-5-3-5-10v-13q0-5 6-9z" fill="url(#canvas-mark)"/>
+  </g>
+  <g fill="url(#letter-canvas)" stroke="#171612" stroke-linejoin="round" stroke-width="3" aria-label="archon">
+    <path d="m437 416v-5h29v103h-29v-7q-13 11-31 11c-31 0-51-24-51-55 0-30 21-56 52-56q18 0 30 9zm0 46c0-15-11-26-26-26-16 0-26 11-26 26 0 16 10 27 26 27 15 0 26-11 26-27z" fill-rule="evenodd"/>
+    <path d="m477 411h28v6q11-12 34-9v30q-14-4-23 5-10 8-10 24v48h-29z"/>
+    <path d="m637 431-22 17q-9-11-24-12c-15 0-25 11-25 26 0 16 10 27 25 27q15 0 24-12l22 15c-11 17-26 26-47 26-31 0-54-24-54-55 0-32 23-56 54-56 20 0 37 8 47 24z"/>
+    <path d="m642 372h29v46q12-11 28-11c27 0 43 18 43 47v61h-30v-58c0-13-7-20-19-20-13 0-21 10-21 24v54h-30z"/>
+    <path d="m859 462c0 32-24 56-56 56s-55-24-55-56c0-31 23-55 55-55s56 24 56 55zm-31 0c0-15-10-25-25-25s-25 10-25 25c0 16 10 27 25 27s25-11 25-27z" fill-rule="evenodd"/>
+    <path d="m864 411h30v6q11-10 28-10c24 0 39 18 39 47v61h-30v-58c0-13-6-20-18-20s-19 10-19 23v55h-30z"/>
+  </g>
+</svg>

@@ -1,0 +1,473 @@
+// Archon system of record. Better Auth owns user/session/account/verification
+// (+ organization/member/invitation/apikey via plugins). Archon domain tables
+// reference organizationId/userId but never store secrets or private keys.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- Better Auth core ----
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  emailVerified Boolean      @default(false)
+  name          String?
+  firstName     String?
+  lastName      String?
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  members       Member[]
+  invitations   Invitation[]
+}
+
+model Session {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token                String   @unique
+  expiresAt            DateTime
+  ipAddress            String?
+  userAgent            String?
+  activeOrganizationId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+}
+
+// ---- Better Auth organization plugin ----
+model Organization {
+  id          String            @id @default(cuid())
+  name        String
+  slug        String?           @unique
+  logo        String?
+  metadata    String?
+  createdAt   DateTime          @default(now())
+  members     Member[]
+  invitations Invitation[]
+  intents     ExecutionIntent[]
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+}
+
+model Invitation {
+  id             String       @id @default(cuid())
+  email          String
+  inviterId      String
+  inviter        User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+}
+
+// ---- Archon-owned API keys (hashed at rest, plaintext shown once) ----
+model ApiKey {
+  id             String    @id @default(cuid())
+  key            String    @unique
+  prefix         String?
+  last4          String?
+  name           String?
+  userId         String
+  organizationId String?
+  environment    String    @default("test")
+  scopes         String[]  @default([])
+  hashed         Boolean   @default(true)
+  revokedAt      DateTime?
+  expiresAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+// ---- Archon domain (MVP slice) ----
+model ExecutionIntent {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  environment    String           @default("test")
+  type           String
+  chain          String
+  sellAsset      String
+  buyAsset       String
+  amount         String
+  constraints    Json?
+  status         String           @default("received")
+  idempotencyKey String
+  quoteSet       QuoteSet?
+  context        ContextSnapshot?
+  decision       Decision?
+  plan           ExecutionPlan?
+  approvals      Approval[]
+  executions     ExecutionAttempt[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, environment, idempotencyKey])
+  @@index([organizationId, environment, createdAt])
+}
+
+// Minimal policy bookkeeping for Phase 2. The full studio (builder,
+// simulation, approvals) lands in Phase 4 — but architecture requires every
+// decision to reference a policy version, so a seeded default exists now.
+model Policy {
+  id             String          @id @default(cuid())
+  organizationId String
+  environment    String          @default("test")
+  name           String
+  versions       PolicyVersion[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([organizationId, environment, name])
+}
+
+model PolicyVersion {
+  id        String     @id @default(cuid())
+  policyId  String
+  policy    Policy     @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  version   Int
+  status    String     @default("published")
+  rules     Json
+  createdAt DateTime   @default(now())
+  publishedAt DateTime?
+  decisions Decision[]
+
+  @@unique([policyId, version])
+}
+
+model QuoteSet {
+  id        String          @id @default(cuid())
+  intentId  String          @unique
+  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  quotes    Quote[]
+  createdAt DateTime        @default(now())
+}
+
+model Quote {
+  id             String   @id @default(cuid())
+  quoteSetId     String
+  quoteSet       QuoteSet @relation(fields: [quoteSetId], references: [id], onDelete: Cascade)
+  venue          String
+  chain          String
+  sellAsset      String
+  buyAsset       String
+  amountIn       String
+  amountOut      String
+  priceImpactBps Int
+  feeBps         Int
+  expiresAt      DateTime
+}
+
+model ContextSnapshot {
+  id        String          @id @default(cuid())
+  intentId  String          @unique
+  intent    ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  facts     Json
+  hash      String
+  createdAt DateTime        @default(now())
+}
+
+model Decision {
+  id                     String          @id @default(cuid())
+  intentId               String          @unique
+  intent                 ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  organizationId         String
+  environment            String          @default("test")
+  outcome                String
+  strategy               String
+  confidence             Float?
+  reasons                Json
+  policyVersionId        String?
+  policyVersion          PolicyVersion?  @relation(fields: [policyVersionId], references: [id])
+  contextSnapshotId      String?
+  quoteSetId             String?
+  // Phase 5: Tier-3 judgment evidence. Null when deterministic policy
+  // decided without escalation.
+  judgmentStrategy       String?
+  judgmentConfidence     Float?
+  judgmentProvider       String?
+  judgmentModel          String?
+  judgmentLatencyMs      Int?
+  judgmentInputTokens    Int?
+  judgmentOutputTokens   Int?
+  judgmentCostUsd        Float?
+  judgmentAllocation     Json?
+  judgmentFallback       Boolean         @default(false)
+  judgmentFallbackReason String?
+  judgmentShadow         Boolean         @default(false)
+  createdAt              DateTime        @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}
+
+// Phase 3: plan build + simulation gate. No signing or submission yet —
+// submitAuthorizedTransaction stays unimplemented until Phase 6.
+model ExecutionPlan {
+  id          String          @id @default(cuid())
+  intentId    String          @unique
+  intent      ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  venue       String
+  chain       String
+  plan        Json
+  simOk       Boolean
+  expectedOut String?
+  simError    String?
+  gas         String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+// Phase 6: a non-custodial attempt created only after explicit caller
+// authorization. The raw signed transaction is never persisted.
+model ExecutionAttempt {
+  id                String          @id @default(cuid())
+  organizationId    String
+  environment       String          @default("test")
+  intentId          String
+  intent            ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  planId            String
+  venue             String
+  chain             String
+  status            String          @default("pending")
+  signer            String?
+  authorizationHash String
+  transactionHash   String?
+  expectedOut       String?
+  realizedOut       String?
+  failureReason     String?
+  submittedAt       DateTime?
+  confirmedAt       DateTime?
+  reorgedAt         DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([organizationId, environment, createdAt])
+  @@index([intentId, createdAt])
+  @@unique([organizationId, environment, authorizationHash])
+}
+
+// A review decision produces exactly one open approval at a time. Replacement
+// proposals are immutable JSON evidence; they never overwrite the intent.
+model Approval {
+  id                  String          @id @default(cuid())
+  organizationId      String
+  environment         String          @default("test")
+  intentId            String
+  intent              ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  status              String          @default("pending")
+  reason              String
+  originalProposal    Json
+  replacementProposal Json?
+  resolutionReason    String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([organizationId, environment, status, createdAt])
+  @@index([intentId, createdAt])
+}
+
+model KillSwitch {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  enabled        Boolean  @default(false)
+  reason         String?
+  changedBy      String?
+  changedAt      DateTime @updatedAt
+
+  @@unique([organizationId, environment])
+}
+
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  url            String
+  events         String[]
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deliveries     WebhookDelivery[]
+
+  @@index([organizationId, environment, createdAt])
+}
+
+model WebhookDelivery {
+  id          String          @id @default(cuid())
+  endpointId  String
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  eventType   String
+  payload     Json
+  status      String          @default("pending")
+  attempts    Int             @default(0)
+  responseCode Int?
+  error       String?
+  deliveredAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([endpointId, createdAt])
+}
+
+// Phase 7: tenant-scoped connector availability. Adapters are registered in
+// code; this record determines whether an operator has allowed one to receive
+// quotes in an environment.
+model ConnectorSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  chain          String
+  venue          String
+  enabled        Boolean  @default(true)
+  changedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, environment, chain, venue])
+  @@index([organizationId, environment, enabled])
+}
+
+model OrganizationSetting {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  environment           String   @default("test")
+  decisionRetentionDays Int      @default(365)
+  judgmentFallback      String   @default("review")
+  updatedBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([organizationId, environment])
+}
+
+// Supplemental tamper-evident records for operator configuration actions.
+// Lifecycle events remain the source for pipeline state transitions and are
+// chained at audit read/export time with the same canonical encoder.
+model AuditRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String   @default("test")
+  action         String
+  actorId        String?
+  resource       String
+  before         Json?
+  after          Json?
+  previousHash   String?
+  integrityHash  String   @unique
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}
+
+// Append-only lifecycle log. Backs GET /v1/events and the inspector
+// timeline; the NATS outbox publisher attaches in Phase 3.
+model Event {
+  id             String   @id @default(cuid())
+  type           String
+  organizationId String
+  environment    String   @default("test")
+  intentId       String?
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([intentId, createdAt])
+  @@index([organizationId, environment, createdAt])
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  environment    String
+  method         String
+  path           String
+  key            String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, environment, method, path, key])
+  @@index([createdAt])
+}
+
+// Phase 3: transactional outbox. State changes and the event destined for
+// NATS JetStream commit together; the publisher flips published once
+// delivered so recovery can replay the remainder.
+model OutboxEvent {
+  id             String   @id @default(cuid())
+  type           String
+  organizationId String
+  environment    String   @default("test")
+  intentId       String?
+  payload        Json?
+  published      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([published, createdAt])
+  @@index([organizationId, environment, createdAt])
+}
+
+// Phase 4: side-effect-free policy replay. A job re-evaluates stored quotes
+// under a candidate version and records before/after outcomes as JSON.
+// Replay never writes decisions, executions, or webhooks.
+model ReplayJob {
+  id              String   @id @default(cuid())
+  organizationId  String
+  environment     String   @default("test")
+  policyVersionId String
+  name            String?
+  from            DateTime
+  to              DateTime
+  status          String   @default("complete")
+  stats           Json?
+  results         Json?
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId, environment, createdAt])
+}
